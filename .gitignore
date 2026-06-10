@@ -205,3 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# Ignore project data folders
+data/
+datasets/
+
+# Ignore YOLO model weights
+*.pt
+
+# Ignore PyTorch/YOLO cache and run folders
+runs/
+__pycache__/
+*.pyc
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
