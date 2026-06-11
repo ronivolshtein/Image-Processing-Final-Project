@@ -51,7 +51,7 @@ class ClassicalTasks:
         prev_points = cv2.goodFeaturesToTrack(
             prev_gray,
             maxCorners=200,
-            qualityLevel=0.01,
+            qualityLevel=0.05,
             minDistance=10
         )
 
