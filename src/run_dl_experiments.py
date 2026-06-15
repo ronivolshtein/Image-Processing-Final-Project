@@ -34,45 +34,61 @@ class DLExperimentRunner:
         }
 
     def run_yolo_experiments(self, output_csv="data/output/dl_results.csv"):
+        import shutil
         results = []
+        
+        # 📂 יצירה ומחיקה של התיקייה כדי לא למלא את הדיסק (דריסה מוחלטת)
+        vis_dir = "data/output_images"
+        if os.path.exists(vis_dir):
+            shutil.rmtree(vis_dir)
+        os.makedirs(vis_dir, exist_ok=True)
 
-        # --- BASELINE: הרצה על תמונה נקייה (Clean RGB) ---
+        # 1. שמירת תמונת המקור הנקייה (Ground Truth) - בלי כלום
+        cv2.imwrite(os.path.join(vis_dir, "0_ground_truth.jpg"), self.img)
+
+        # --- BASELINE: הרצה על תמונה נקייה ---
         clean_rgb = cv2.cvtColor(self.img, cv2.COLOR_BGR2RGB)
         det_clean_res = self.yolo.detect_objects(clean_rgb)
         seg_clean_res = self.yolo.segment_instances(clean_rgb)
         
+        # שמירת ה-Enhancements על התמונה הנקייה
+        if det_clean_res:
+            det_clean_res[0].save(filename=os.path.join(vis_dir, "task_1_clean_baseline_detection.jpg"))
+        if seg_clean_res:
+            seg_clean_res[0].save(filename=os.path.join(vis_dir, "task_2_clean_baseline_segmentation.jpg"))
+
         clean_det_count = len(det_clean_res[0].boxes) if det_clean_res else 0
         clean_seg_count = len(seg_clean_res[0].masks) if seg_clean_res and seg_clean_res[0].masks is not None else 0
-        
         results.append(["clean", 0, float("inf"), clean_det_count, clean_seg_count])
-        print(f"[DL] clean -> Detected: {clean_det_count}, Segmented: {clean_seg_count}")
 
-        # --- DISTORTIONS: הרצה על 4 עיוותים X 4 רמות עוצמה ---
+        # --- DISTORTIONS & DL TASKS ---
         for name, func in self.distortion_funcs.items():
             for level in range(1, 5):
-                # הפעלת העיוות בזיכרון (BGR)
+                # א. יצירת העיוות בזיכרון (BGR)
                 distorted_bgr = func(self.img, level)
-                
-                # חישוב מדד ה-SNR המדויק שלך
                 snr_val = calculate_snr(self.img, distorted_bgr)
                 
-                # המרה ל-RGB עבור מודל ה-YOLO
-                distorted_rgb = cv2.cvtColor(distorted_bgr, cv2.COLOR_BGR2RGB)
+                # 📸 שמירת התמונה המעוותת בלבד (רק הרעש, לפני משימות)
+                cv2.imwrite(os.path.join(vis_dir, f"distortion_{name}_l{level}.jpg"), distorted_bgr)
                 
-                # הרצת משימות ה-DL
+                # ב. המרה ל-RGB עבור YOLO והרצת משימות ה-DL
+                distorted_rgb = cv2.cvtColor(distorted_bgr, cv2.COLOR_BGR2RGB)
                 det_res = self.yolo.detect_objects(distorted_rgb)
                 seg_res = self.yolo.segment_instances(distorted_rgb)
                 
-                # ספירת התוצאות מהמודלים
+                # 📸 שמירת הפלט הויזואלי של משימות ה-DL (אחרי Enhancements)
+                if det_res:
+                    det_res[0].save(filename=os.path.join(vis_dir, f"task_1_{name}_l{level}_detection.jpg"))
+                if seg_res:
+                    seg_res[0].save(filename=os.path.join(vis_dir, f"task_2_{name}_l{level}_segmentation.jpg"))
+                
                 det_count = len(det_res[0].boxes) if det_res else 0
                 seg_count = len(seg_res[0].masks) if seg_res and seg_res[0].masks is not None else 0
-                
                 results.append([name, level, snr_val, det_count, seg_count])
-                print(f"[DL] {name} (Level {level}) -> SNR: {snr_val:.2f} dB | Det: {det_count}, Seg: {seg_count}")
 
-        # שמירת התוצאות ל-CSV
         self._save_csv(output_csv, results, ["distortion", "level", "snr", "detected_objects", "segmented_instances"])
-
+        print(f"\n✅ פלטי DL והעיוותים נשמרו בתיקייה: '{vis_dir}/'")
+    
     def _save_csv(self, path, data, header):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", newline="") as f:

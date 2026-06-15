@@ -3,7 +3,7 @@ import os
 import csv
 import numpy as np
 from classical_tasks import ClassicalTasks
-# Matching your exact function names from distortions.py
+# אינטגרציה מלאה עם קובץ העיוותים המעודכן שלך
 from distortions import (
     apply_gaussian_noise,
     apply_salt_and_pepper_noise,
@@ -19,7 +19,7 @@ class ClassicalExperimentRunner:
 
         # טוענים תמונה אחת לניסויים
         self.img_path = os.path.join(base_dir, "000000000009.jpg")
-        self.img = cv2.imread(self.img_path)
+        self.img = cv2.imread(self.img_path)    
 
         if self.img is None:
             raise ValueError(f"Image not found at {self.img_path}")
@@ -27,7 +27,7 @@ class ClassicalExperimentRunner:
         # לוקחים patch קטן מהתמונה כ-template
         self.template = self.img[100:200, 100:200]
 
-        # 4 עיוותים + clean
+        # שימוש בלעדי ב-4 העיוותים הרשמיים שלך (כל עיוות ירוץ ב-4 רמות)
         self.distortion_funcs = {
             "gaussian_noise": apply_gaussian_noise,
             "salt_pepper": apply_salt_and_pepper_noise,
@@ -35,92 +35,6 @@ class ClassicalExperimentRunner:
             "motion_blur": apply_motion_blur
         }
 
-    # # -------------------------
-    # # פונקציות עיוות
-    # # -------------------------
-    # def add_gaussian_noise(self, img):
-    #     noise = np.random.normal(0, 25, img.shape).astype(np.uint8)
-    #     return cv2.add(img, noise)
-
-    # def add_salt_pepper(self, img, amount=0.02):
-    #     out = img.copy()
-    #     h, w, c = out.shape
-    #     num_pixels = int(amount * h * w)
-    #     coords = [np.random.randint(0, i - 1, num_pixels) for i in (h, w)]
-    #     out[coords[0], coords[1]] = 255
-    #     coords = [np.random.randint(0, i - 1, num_pixels) for i in (h, w)]
-    #     out[coords[0], coords[1]] = 0
-    #     return out
-
-    # def motion_blur(self, img):
-    #     kernel = np.zeros((15, 15))
-    #     kernel[7, :] = np.ones(15)
-    #     kernel = kernel / 15
-    #     return cv2.filter2D(img, -1, kernel)
-
-    # -----------------------------------------------------------------
-    # TEMPLATE MATCHING EXPERIMENT (Iterating over 4 levels + SNR)
-    # -----------------------------------------------------------------
-    def run_template_matching(self, output_csv="data/output/template_results.csv"):
-        results = []
-
-        # --- BASELINE: Run on clean image first ---
-        _, _, clean_score = self.ct.template_match(self.img, self.template)
-        results.append(["clean", 0, float("inf"), clean_score])
-        print(f"[TEMPLATE] clean -> score: {clean_score:.4f}")
-
-        # --- DISTORTIONS: Run on 4 types x 4 intensity levels ---
-        for name, func in self.distortion_funcs.items():
-            for level in range(1, 5):
-                # Apply your exact distortion level
-                distorted = func(self.img, level)
-                
-                # Compute exact scientific SNR
-                snr_val = calculate_snr(self.img, distorted)
-
-                # Run classical template matching on the distorted image
-                _, _, score = self.ct.template_match(distorted, self.template)
-
-                results.append([name, level, snr_val, float(score)])
-                print(f"[TEMPLATE] {name} (Level {level}) -> SNR: {snr_val:.2f} dB, score: {score:.4f}")
-
-        self._save_csv(output_csv, results, ["distortion", "level", "snr", "score"])
-    
-    # -----------------------------------------------------------------
-    # OPTICAL FLOW EXPERIMENT (Iterating over 4 levels + SNR)
-    # -----------------------------------------------------------------
-    def run_optical_flow(self, output_csv="data/output/optical_flow_results.csv"):
-        results = []
-
-        # Generate Frame 2 by applying a standard light movement simulation (using your Motion Blur level 1)
-        img2 = apply_motion_blur(self.img, level=1)
-
-        # --- BASELINE: Run on clean frames first ---
-        _, _, status = self.ct.optical_flow(self.img, img2)
-        clean_tracked = int(status.sum()) if status is not None else 0
-        results.append(["clean", 0, float("inf"), clean_tracked])
-        print(f"[FLOW] clean -> tracked points: {clean_tracked}")
-
-        # --- DISTORTIONS: Run on 4 types x 4 intensity levels ---
-        for name, func in self.distortion_funcs.items():
-            for level in range(1, 5):
-                # Apply same distortion level symmetrically to both consecutive video frames
-                distorted1 = func(self.img, level)
-                distorted2 = func(img2, level)
-
-                # Compute SNR based on Frame 1
-                snr_val = calculate_snr(self.img, distorted1)
-
-                # Run classical Lucas-Kanade optical flow
-                _, _, status = self.ct.optical_flow(distorted1, distorted2)
-
-                good_points = int(status.sum()) if status is not None else 0
-                results.append([name, level, snr_val, good_points])
-                print(f"[FLOW] {name} (Level {level}) -> SNR: {snr_val:.2f} dB, tracked points: {good_points}")
-
-        self._save_csv(output_csv, results, ["distortion", "level", "snr", "tracked_points"])
-    
-    # -----------------------------------------------------------------
     def _save_csv(self, path, data, header):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", newline="") as f:
@@ -128,8 +42,111 @@ class ClassicalExperimentRunner:
             writer.writerow(header)
             writer.writerows(data)
 
+    # -------------------------
+    # TEMPLATE MATCHING
+    # -------------------------
+    def run_template_matching(self, output_csv="data/output/template_results.csv"):
+        results = []
+        vis_dir = "data/output_images"
+        os.makedirs(vis_dir, exist_ok=True)
+
+        # --- BASELINE: הרצה על התמונה הנקייה המקורית ---
+        result_map, best_loc, score = self.ct.template_match(self.img, self.template)
+        
+        # שמירת פלט ויזואלי נקי לבאזליין
+        clean_vis = self.img.copy()
+        h_t, w_t = self.template.shape[:2]
+        cv2.rectangle(clean_vis, best_loc, (best_loc[0] + w_t, best_loc[1] + h_t), (0, 255, 0), 2)
+        cv2.imwrite(os.path.join(vis_dir, "task_3_clean_baseline_template.jpg"), clean_vis)
+        
+        # הדפסה מקורית של רוני לתמונה הנקייה
+        print(f"[TEMPLATE] clean -> score: {score:.4f}, loc: {best_loc}")
+        results.append(["clean", float(score), best_loc])
+
+        # --- EXPERIMENTS: ריצה על 4 העיוותים ב-4 הרמות שלך ---
+        for name, func in self.distortion_funcs.items():
+            for level in range(1, 5):
+                distorted = func(self.img, level)
+
+                # קריאה לפונקציה של רוני עם התמונה המעוותת שלך
+                result_map, best_loc, score = self.ct.template_match(
+                    distorted, self.template
+                )
+
+                # 📸 יצירת התמונה הוויזואלית: ציור מלבן ירוק במיקום שנמצא
+                matched_vis = distorted.copy()
+                cv2.rectangle(matched_vis, best_loc, (best_loc[0] + w_t, best_loc[1] + h_t), (0, 255, 0), 2)
+                cv2.imwrite(os.path.join(vis_dir, f"task_3_{name}_l{level}_template.jpg"), matched_vis)
+
+                # שמירה והדפסה לפי הפורמט המקורי של רוני
+                results.append([f"{name}_l{level}", float(score), best_loc])
+                print(f"[TEMPLATE] {name}_l{level} -> score: {score:.4f}, loc: {best_loc}")
+
+        self._save_csv(output_csv, results, ["distortion", "score", "location"])
+
+    # -------------------------
+    # OPTICAL FLOW
+    # -------------------------
+    def run_optical_flow(self, output_csv="data/output/optical_flow_results.csv"):
+        results = []
+        vis_dir = "data/output_images"
+        os.makedirs(vis_dir, exist_ok=True)
+
+        # פריים 2 המקורי של רוני שמדמה תנועה (motion_blur ברמה מקומית קבועה לטובת זרימה)
+        # נשתמש ב-apply_motion_blur שלך ברמה 3 כדי לייצר את פריים התנועה השני
+        img2 = apply_motion_blur(self.img, level=3)
+
+        # --- BASELINE: הרצה על התמונות הנקיות ---
+        prev_pts, next_pts, status = self.ct.optical_flow(self.img, img2)
+        
+        clean_vis = self.img.copy()
+        if prev_pts is not None and next_pts is not None and status is not None:
+            good_prev = prev_pts[status == 1]
+            good_next = next_pts[status == 1]
+            for pt_prev, pt_next in zip(good_prev, good_next):
+                x1, y1 = map(int, pt_prev)
+                x2, y2 = map(int, pt_next)
+                cv2.arrowedLine(clean_vis, (x1, y1), (x2, y2), (0, 0, 255), 1, tipLength=0.3)
+        cv2.imwrite(os.path.join(vis_dir, "task_4_clean_baseline_optical_flow.jpg"), clean_vis)
+        
+        good_points = int(status.sum()) if status is not None else 0
+        print(f"[FLOW] clean -> tracked points: {good_points}")
+        results.append(["clean", good_points])
+
+        # --- EXPERIMENTS: ריצה על 4 העיוותים ב-4 הרמות שלך ---
+        for name, func in self.distortion_funcs.items():
+            for level in range(1, 5):
+                # הפעלת העיוות שלך על שני הפריימים בהתאמה
+                distorted1 = func(self.img, level)
+                distorted2 = func(img2, level)
+
+                # קריאה לפונקציה של רוני
+                prev_pts, next_pts, status = self.ct.optical_flow(
+                    distorted1, distorted2
+                )
+
+                # 📸 יצירת התמונה הוויזואלית: ציור וקטורי התנועה (חיצים אדומים) על גבי הפריים המעוות הראשון
+                flow_vis = distorted1.copy()
+                if prev_pts is not None and next_pts is not None and status is not None:
+                    good_prev = prev_pts[status == 1]
+                    good_next = next_pts[status == 1]
+                    for pt_prev, pt_next in zip(good_prev, good_next):
+                        x1, y1 = map(int, pt_prev)
+                        x2, y2 = map(int, pt_next)
+                        cv2.arrowedLine(flow_vis, (x1, y1), (x2, y2), (0, 0, 255), 1, tipLength=0.3)
+                
+                cv2.imwrite(os.path.join(vis_dir, f"task_4_{name}_l{level}_optical_flow.jpg"), flow_vis)
+
+                # שמירה והדפסה לפי הפורמט המקורי של רוני
+                good_points = int(status.sum()) if status is not None else 0
+                results.append([f"{name}_l{level}", good_points])
+                print(f"[FLOW] {name}_l{level} -> tracked points: {good_points}")
+
+        self._save_csv(output_csv, results, ["distortion", "tracked_points"])
+
+
 def run_all_classical():
-    # Dynamic path handling for both Matan (Windows) and Roni (Linux)
+    # ניהול נתיבים דינמי ובטוח עבור מתן (Windows) ורוני (Linux)
     matan_path = r"C:\Users\compu\Documents\cv_project\datasets\coco128\images\train2017"
     roni_path = "/home/roni/datasets/coco128/images/train2017"
 
