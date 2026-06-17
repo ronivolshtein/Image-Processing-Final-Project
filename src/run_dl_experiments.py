@@ -1,118 +1,137 @@
-import os
 import cv2
-import csv
-from yolo_tasks import YoloTasks
-# ייבוא פונקציות העיוות הרשמיות שלך מהמודול distortions.py
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from ultralytics import YOLO
 from distortions import (
     apply_gaussian_noise,
     apply_salt_and_pepper_noise,
     apply_low_light,
-    apply_motion_blur,
-    calculate_snr
+    apply_motion_blur
 )
 
-class DLExperimentRunner:
-    def __init__(self, base_dir):
+class DeepLearningExperimentRunner:
+    def __init__(self, base_dir, distortion_images_dir, distortion_grids_dir, graphs_tables_dir, task_images_dir):
         self.base_dir = base_dir
+        self.distortion_images_dir = distortion_images_dir
+        self.distortion_grids_dir = distortion_grids_dir
+        self.graphs_tables_dir = graphs_tables_dir
+        self.task_images_dir = task_images_dir
         
-        # 1. טעינת מודלי ה-DL (YOLO Object Detection & Segmentation)
-        self.yolo = YoloTasks(det_model_path="yolov8n.pt", seg_model_path="yolov8n-seg.pt")
-
-        # 2. טעינת התמונה הבודדת לניסוי - בדיוק כמו בקוד של רוני
-        self.img_path = os.path.join(base_dir, "000000000009.jpg")
-        self.img = cv2.imread(self.img_path)
-
-        if self.img is None:
-            raise ValueError(f"Image not found at {self.img_path}")
-
-        # מיפוי פונקציות העיוות שלך עם השמות המעודכנים
-        self.distortion_funcs = {
+        self.det_model = YOLO("yolov8n.pt")
+        
+        self.img_name = "000000000009.jpg"
+        self.img_path = os.path.join(base_dir, self.img_name)
+        self.clean_img = cv2.imread(self.img_path)
+        
+        if self.clean_img is None:
+            raise FileNotFoundError(f"Source image not found at {self.img_path}")
+            
+        self.distortions = {
             "gaussian_noise": apply_gaussian_noise,
             "salt_pepper": apply_salt_and_pepper_noise,
             "low_light": apply_low_light,
             "motion_blur": apply_motion_blur
         }
 
-    def run_yolo_experiments(self, output_csv="data/output/dl_results.csv"):
-        import shutil
-        results = []
+    def save_before_after_grid(self, clean, distorted, distortion_name, level):
+        """
+        Saves side-by-side distortion grids inside distortion_before_after
+        """
+        grid = np.hstack((clean, distorted))
+        cv2.putText(grid, "Original (GT)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.putText(grid, f"Distorted ({distortion_name} L{level})", (clean.shape[1] + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
         
-        # 📂 יצירה ומחיקה של התיקייה כדי לא למלא את הדיסק (דריסה מוחלטת)
-        vis_dir = "data/output_images"
-        if os.path.exists(vis_dir):
-            shutil.rmtree(vis_dir)
-        os.makedirs(vis_dir, exist_ok=True)
+        path = os.path.join(self.distortion_grids_dir, f"{distortion_name}_l{level}_before_after.jpg")
+        cv2.imwrite(path, grid)
 
-        # 1. שמירת תמונת המקור הנקייה (Ground Truth) - בלי כלום
-        cv2.imwrite(os.path.join(vis_dir, "0_ground_truth.jpg"), self.img)
+    def extract_per_class_performance(self, yolo_results):
+        boxes = yolo_results.boxes
+        if boxes is None or len(boxes) == 0:
+            return {}
+            
+        class_counts = {}
+        for box in boxes:
+            cls_id = int(box.cls[0])
+            cls_name = yolo_results.names[cls_id]
+            conf = float(box.conf[0])
+            
+            if cls_name not in class_counts:
+                class_counts[cls_name] = []
+            class_counts[cls_name].append(conf)
+            
+        return {cls: np.mean(confs) for cls, confs in class_counts.items()}
 
-        # --- BASELINE: הרצה על תמונה נקייה ---
-        clean_rgb = cv2.cvtColor(self.img, cv2.COLOR_BGR2RGB)
-        det_clean_res = self.yolo.detect_objects(clean_rgb)
-        seg_clean_res = self.yolo.segment_instances(clean_rgb)
+    def run_experiments(self):
+        print("🚀 Running Week 1 Deep Learning Experiments...")
         
-        # שמירת ה-Enhancements על התמונה הנקייה
-        if det_clean_res:
-            det_clean_res[0].save(filename=os.path.join(vis_dir, "task_1_clean_baseline_detection.jpg"))
-        if seg_clean_res:
-            seg_clean_res[0].save(filename=os.path.join(vis_dir, "task_2_clean_baseline_segmentation.jpg"))
+        # Part 1: Baseline Per-Class Performance (Saved to tasks_graphs_and_tables as CSV)
+        res_clean_det = self.det_model(self.clean_img)[0]
+        gt_per_class = self.extract_per_class_performance(res_clean_det)
+        
+        df_gt = pd.DataFrame(list(gt_per_class.items()), columns=['Class', 'Baseline Confidence (mAP Proxy)'])
+        df_gt.to_csv(os.path.join(self.graphs_tables_dir, "baseline_per_class_performance.csv"), index=False)
 
-        clean_det_count = len(det_clean_res[0].boxes) if det_clean_res else 0
-        clean_seg_count = len(seg_clean_res[0].masks) if seg_clean_res and seg_clean_res[0].masks is not None else 0
-        results.append(["clean", 0, float("inf"), clean_det_count, clean_seg_count])
+        degradation_data = []
 
-        # --- DISTORTIONS & DL TASKS ---
-        for name, func in self.distortion_funcs.items():
+        for name, func in self.distortions.items():
             for level in range(1, 5):
-                # א. יצירת העיוות בזיכרון (BGR)
-                distorted_bgr = func(self.img, level)
-                snr_val = calculate_snr(self.img, distorted_bgr)
+                # Apply and save raw distorted images and grids to respective directories
+                distorted = func(self.clean_img, level)
+                cv2.imwrite(os.path.join(self.distortion_images_dir, f"{name}_l{level}.jpg"), distorted)
+                self.save_before_after_grid(self.clean_img, distorted, name, level)
                 
-                # 📸 שמירת התמונה המעוותת בלבד (רק הרעש, לפני משימות)
-                cv2.imwrite(os.path.join(vis_dir, f"distortion_{name}_l{level}.jpg"), distorted_bgr)
+                # Run Model on Distorted Data
+                res_dist_det = self.det_model(distorted)[0]
+                annotated_img = res_dist_det.plot()
                 
-                # ב. המרה ל-RGB עבור YOLO והרצת משימות ה-DL
-                distorted_rgb = cv2.cvtColor(distorted_bgr, cv2.COLOR_BGR2RGB)
-                det_res = self.yolo.detect_objects(distorted_rgb)
-                seg_res = self.yolo.segment_instances(distorted_rgb)
+                # Save image annotations inside task_images
+                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_{name}_l{level}.jpg"), annotated_img)
                 
-                # 📸 שמירת הפלט הויזואלי של משימות ה-DL (אחרי Enhancements)
-                if det_res:
-                    det_res[0].save(filename=os.path.join(vis_dir, f"task_1_{name}_l{level}_detection.jpg"))
-                if seg_res:
-                    seg_res[0].save(filename=os.path.join(vis_dir, f"task_2_{name}_l{level}_segmentation.jpg"))
+                boxes = res_dist_det.boxes
+                avg_conf = np.mean([float(b.conf[0]) for b in boxes]) if len(boxes) > 0 else 0.0
+                degradation_data.append({"Distortion": name, "Level": level, "Score": avg_conf})
                 
-                det_count = len(det_res[0].boxes) if det_res else 0
-                seg_count = len(seg_res[0].masks) if seg_res and seg_res[0].masks is not None else 0
-                results.append([name, level, snr_val, det_count, seg_count])
+        # Plot Degradation Chart inside tasks_graphs_and_tables
+        self.plot_degradation(degradation_data)
 
-        self._save_csv(output_csv, results, ["distortion", "level", "snr", "detected_objects", "segmented_instances"])
-        print(f"\n✅ פלטי DL והעיוותים נשמרו בתיקייה: '{vis_dir}/'")
-    
-    def _save_csv(self, path, data, header):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow(header)
-            writer.writerows(data)
+    def plot_degradation(self, data):
+        df = pd.DataFrame(data)
+        plt.figure(figsize=(10, 6))
+        for distortion_name in df['Distortion'].unique():
+            subset = df[df['Distortion'] == distortion_name]
+            plt.plot(subset['Level'], subset['Score'], marker='o', linewidth=2, label=distortion_name)
+            
+        plt.title("YOLOv8 Performance Degradation Analysis")
+        plt.xlabel("Distortion Intensity Level")
+        plt.ylabel("Detection Confidence Score (mAP Proxy)")
+        plt.xticks([1, 2, 3, 4])
+        plt.ylim(0, 1.0)
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.graphs_tables_dir, "deep_learning_degradation_chart.png"))
+        plt.close()
 
-
-def run_all_dl():
-    # ניהול נתיבים דינמי שתואם למחשב שלך ושל רוני
+def main():
     matan_path = r"C:\Users\compu\Documents\cv_project\datasets\coco128\images\train2017"
     roni_path = "/home/roni/datasets/coco128/images/train2017"
-
-    if os.path.exists(matan_path):
-        BASE_DIR = matan_path
-    elif os.path.exists(roni_path):
-        BASE_DIR = roni_path
-    else:
-        BASE_DIR = "datasets/coco128/images/train2017"
-
-    runner = DLExperimentRunner(BASE_DIR)
-    print("\n--- Running YOLO Deep Learning Experiments (Single Image) ---")
-    runner.run_yolo_experiments()
-
+    base_dir = matan_path if os.path.exists(matan_path) else (roni_path if os.path.exists(roni_path) else "datasets/coco128/images/train2017")
+    
+    distortion_images_dir = "data/distortions_output/distortion_images"
+    distortion_grids_dir = "data/distortions_output/distortion_before_after"
+    graphs_tables_dir = "data/tasks_output/tasks_graphs_and_tables"
+    task_images_dir = "data/tasks_output/task_images"
+    
+    os.makedirs(distortion_images_dir, exist_ok=True)
+    os.makedirs(distortion_grids_dir, exist_ok=True)
+    os.makedirs(graphs_tables_dir, exist_ok=True)
+    os.makedirs(task_images_dir, exist_ok=True)
+    
+    runner = DeepLearningExperimentRunner(base_dir, distortion_images_dir, distortion_grids_dir, graphs_tables_dir, task_images_dir)
+    runner.run_experiments()
+    print("\n✅ Deep Learning Experiments Complete! Folders updated perfectly based on formatting requirements.")
 
 if __name__ == "__main__":
-    run_all_dl()
+    main()
