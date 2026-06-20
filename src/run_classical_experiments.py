@@ -1,7 +1,7 @@
 import cv2
 import os
 import numpy as np
-import pandas as pd
+import pandas as pd # type: ignore
 import matplotlib.pyplot as plt
 from classical_tasks import ClassicalTasks
 from distortions import (
