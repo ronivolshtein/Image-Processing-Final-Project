@@ -11,6 +11,77 @@ from distortions import (
     apply_motion_blur
 )
 
+# ================================================================
+# PURE TASK EVALUATION FUNCTIONS (No Disk I/O)
+# ================================================================
+
+def evaluate_object_detection(img_rgb, model=None):
+    """
+    Pure object detection evaluation function.
+    
+    Args:
+        img_rgb: Image in RGB format (NumPy array)
+        model: Optional YOLO model. If None, loads yolov8n.pt
+    
+    Returns:
+        dict: {
+            'metrics': {'detected_objects': int, 'avg_confidence': float},
+            'visualized_image': NumPy BGR array with bounding boxes
+        }
+    """
+    if model is None:
+        model = YOLO("yolov8n.pt")
+    
+    results = model.predict(img_rgb, imgsz=320, verbose=False)
+    res = results[0]
+    
+    # Convert annotated image from RGB to BGR for consistency
+    annotated_img = res.plot()
+    
+    boxes = res.boxes
+    num_objects = len(boxes)
+    avg_conf = np.mean([float(b.conf[0]) for b in boxes]) if num_objects > 0 else 0.0
+    
+    return {
+        'metrics': {'detected_objects': num_objects, 'avg_confidence': avg_conf},
+        'visualized_image': annotated_img
+    }
+
+
+def evaluate_segment_instances(img_rgb, model=None):
+    """
+    Pure instance segmentation evaluation function.
+    
+    Args:
+        img_rgb: Image in RGB format (NumPy array)
+        model: Optional YOLO model. If None, loads yolov8n-seg.pt
+    
+    Returns:
+        dict: {
+            'metrics': {'segmented_instances': int, 'avg_confidence': float},
+            'visualized_image': NumPy BGR array with masks and boxes
+        }
+    """
+    if model is None:
+        model = YOLO("yolov8n-seg.pt")
+    
+    results = model.predict(img_rgb, imgsz=320, verbose=False)
+    res = results[0]
+    
+    # Convert annotated image from RGB to BGR for consistency
+    annotated_img = res.plot()
+    
+    boxes = res.boxes
+    masks = res.masks
+    num_instances = len(boxes)
+    avg_conf = np.mean([float(b.conf[0]) for b in boxes]) if num_instances > 0 else 0.0
+    
+    return {
+        'metrics': {'segmented_instances': num_instances, 'avg_confidence': avg_conf},
+        'visualized_image': annotated_img
+    }
+
+
 class DeepLearningExperimentRunner:
     def __init__(self, base_dir, distortion_images_dir, distortion_grids_dir, graphs_tables_dir, task_images_dir):
         self.base_dir = base_dir
@@ -64,10 +135,12 @@ class DeepLearningExperimentRunner:
         return {cls: np.mean(confs) for cls, confs in class_counts.items()}
 
     def run_experiments(self):
+        """Legacy method kept for backward compatibility. Deprecated - use pure functions."""
         print("🚀 Running Week 1 Deep Learning Experiments...")
         
         # Part 1: Baseline Per-Class Performance (Saved to tasks_graphs_and_tables as CSV)
-        res_clean_det = self.det_model(self.clean_img)[0]
+        clean_img_rgb = cv2.cvtColor(self.clean_img, cv2.COLOR_BGR2RGB)
+        res_clean_det = self.det_model.predict(clean_img_rgb, imgsz=320, verbose=False)[0]
         gt_per_class = self.extract_per_class_performance(res_clean_det)
         
         df_gt = pd.DataFrame(list(gt_per_class.items()), columns=['Class', 'Baseline Confidence (mAP Proxy)'])
@@ -82,16 +155,12 @@ class DeepLearningExperimentRunner:
                 cv2.imwrite(os.path.join(self.distortion_images_dir, f"{name}_l{level}.jpg"), distorted)
                 self.save_before_after_grid(self.clean_img, distorted, name, level)
                 
-                # Run Model on Distorted Data
-                res_dist_det = self.det_model(distorted)[0]
-                annotated_img = res_dist_det.plot()
+                # Run Model on Distorted Data via pure function
+                distorted_rgb = cv2.cvtColor(distorted, cv2.COLOR_BGR2RGB)
+                result = evaluate_object_detection(distorted_rgb, self.det_model)
+                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_{name}_l{level}.jpg"), result['visualized_image'])
                 
-                # Save image annotations inside task_images
-                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_{name}_l{level}.jpg"), annotated_img)
-                
-                boxes = res_dist_det.boxes
-                avg_conf = np.mean([float(b.conf[0]) for b in boxes]) if len(boxes) > 0 else 0.0
-                degradation_data.append({"Distortion": name, "Level": level, "Score": avg_conf})
+                degradation_data.append({"Distortion": name, "Level": level, "Score": result['metrics']['avg_confidence']})
                 
         # Plot Degradation Chart inside tasks_graphs_and_tables
         self.plot_degradation(degradation_data)

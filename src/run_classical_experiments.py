@@ -12,6 +12,73 @@ from distortions import (
     calculate_snr
 )
 
+# ================================================================
+# PURE TASK EVALUATION FUNCTIONS (No Disk I/O)
+# ================================================================
+
+def evaluate_optical_flow(prev_img, next_img):
+    """
+    Pure optical flow evaluation function.
+    
+    Args:
+        prev_img: Previous frame (NumPy BGR array)
+        next_img: Next frame (NumPy BGR array)
+    
+    Returns:
+        dict: {
+            'metrics': {'tracked_points': int},
+            'visualized_image': NumPy BGR array with flow arrows
+        }
+    """
+    ct = ClassicalTasks()
+    prev_pts, next_pts, status = ct.optical_flow(prev_img, next_img)
+    
+    # Draw tracking arrows on the previous image
+    flow_vis = prev_img.copy()
+    tracked_points = 0
+    if prev_pts is not None and next_pts is not None and status is not None:
+        tracked_points = int(status.sum())
+        good_prev = prev_pts[status == 1]
+        good_next = next_pts[status == 1]
+        for pt_prev, pt_next in zip(good_prev, good_next):
+            x1, y1 = map(int, pt_prev)
+            x2, y2 = map(int, pt_next)
+            cv2.arrowedLine(flow_vis, (x1, y1), (x2, y2), (0, 255, 0), 1, tipLength=0.3)
+    
+    return {
+        'metrics': {'tracked_points': tracked_points},
+        'visualized_image': flow_vis
+    }
+
+
+def evaluate_template_matching(img, template):
+    """
+    Pure template matching evaluation function.
+    
+    Args:
+        img: Image to search in (NumPy BGR array)
+        template: Template to match (NumPy BGR array)
+    
+    Returns:
+        dict: {
+            'metrics': {'matching_score': float, 'location': tuple},
+            'visualized_image': NumPy BGR array with bounding box
+        }
+    """
+    ct = ClassicalTasks()
+    _, best_loc, score = ct.template_match(img, template)
+    
+    # Draw bounding box on the image
+    matched_vis = img.copy()
+    h_t, w_t = template.shape[:2]
+    cv2.rectangle(matched_vis, best_loc, (best_loc[0] + w_t, best_loc[1] + h_t), (0, 255, 0), 2)
+    
+    return {
+        'metrics': {'matching_score': float(score), 'location': str(best_loc)},
+        'visualized_image': matched_vis
+    }
+
+
 class ClassicalExperimentRunner:
     def __init__(self, base_dir, distortion_images_dir, distortion_grids_dir, graphs_tables_dir, task_images_dir):
         self.base_dir = base_dir
@@ -51,18 +118,15 @@ class ClassicalExperimentRunner:
         cv2.imwrite(path, grid)
 
     def run_template_matching(self):
+        """Legacy method kept for backward compatibility. Deprecated - use evaluate_template_matching()."""
         print("\n--- Running Template Matching Degradation Experiments ---")
         results = []
         degradation_data = []
 
         # Baseline: Run on original clean image
-        _, best_loc, score = self.ct.template_match(self.img, self.template)
-        clean_vis = self.img.copy()
-        h_t, w_t = self.template.shape[:2]
-        cv2.rectangle(clean_vis, best_loc, (best_loc[0] + w_t, best_loc[1] + h_t), (0, 255, 0), 2)
-        cv2.imwrite(os.path.join(self.task_images_dir, "task_3_clean_baseline_template.jpg"), clean_vis)
-        
-        results.append(["clean", 0, 100.0, float(score), str(best_loc)])
+        result = evaluate_template_matching(self.img, self.template)
+        cv2.imwrite(os.path.join(self.task_images_dir, "task_3_clean_baseline_template.jpg"), result['visualized_image'])
+        results.append(["clean", 0, 100.0, result['metrics']['matching_score'], result['metrics']['location']])
 
         # Experiments: Run across 4 distortions and 4 levels
         for name, func in self.distortion_funcs.items():
@@ -74,16 +138,12 @@ class ClassicalExperimentRunner:
                 cv2.imwrite(os.path.join(self.distortion_images_dir, f"{name}_l{level}.jpg"), distorted)
                 self.save_before_after_grid(self.img, distorted, name, level)
 
-                # Execute template matching
-                _, best_loc, score = self.ct.template_match(distorted, self.template)
+                # Execute template matching via pure function
+                result = evaluate_template_matching(distorted, self.template)
+                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_task_3_{name}_l{level}.jpg"), result['visualized_image'])
 
-                # Draw bounding box on the distorted image (Saved to task_images)
-                matched_vis = distorted.copy()
-                cv2.rectangle(matched_vis, best_loc, (best_loc[0] + w_t, best_loc[1] + h_t), (0, 0, 255), 2)
-                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_task_3_{name}_l{level}.jpg"), matched_vis)
-
-                results.append([name, level, float(snr_value), float(score), str(best_loc)])
-                degradation_data.append({"Distortion": name, "Level": level, "Score": float(score)})
+                results.append([name, level, float(snr_value), result['metrics']['matching_score'], result['metrics']['location']])
+                degradation_data.append({"Distortion": name, "Level": level, "Score": result['metrics']['matching_score']})
 
         # Save Performance Table into tasks_graphs_and_tables
         df = pd.DataFrame(results, columns=["Distortion", "Level", "SNR", "Matching_Score", "Location"])
@@ -93,6 +153,7 @@ class ClassicalExperimentRunner:
         self.plot_classical_degradation(degradation_data, "Template Matching Score", "template_matching_degradation.png")
 
     def run_optical_flow(self):
+        """Legacy method kept for backward compatibility. Deprecated - use evaluate_optical_flow()."""
         print("\n--- Running Optical Flow Degradation Experiments ---")
         results = []
         degradation_data = []
@@ -100,18 +161,9 @@ class ClassicalExperimentRunner:
         img2 = apply_motion_blur(self.img, level=3)
 
         # Baseline: Run on clean frames
-        prev_pts, next_pts, status = self.ct.optical_flow(self.img, img2)
-        clean_vis = self.img.copy()
-        if prev_pts is not None and next_pts is not None and status is not None:
-            good_prev = prev_pts[status == 1]
-            good_next = next_pts[status == 1]
-            for pt_prev, pt_next in zip(good_prev, good_next):
-                x1, y1 = map(int, pt_prev)
-                x2, y2 = map(int, pt_next)
-                cv2.arrowedLine(clean_vis, (x1, y1), (x2, y2), (0, 255, 0), 1, tipLength=0.3)
-        cv2.imwrite(os.path.join(self.task_images_dir, "task_4_clean_baseline_optical_flow.jpg"), clean_vis)
-        
-        baseline_points = int(status.sum()) if status is not None else 0
+        result = evaluate_optical_flow(self.img, img2)
+        cv2.imwrite(os.path.join(self.task_images_dir, "task_4_clean_baseline_optical_flow.jpg"), result['visualized_image'])
+        baseline_points = result['metrics']['tracked_points']
         results.append(["clean", 0, 100.0, baseline_points])
 
         for name, func in self.distortion_funcs.items():
@@ -120,25 +172,12 @@ class ClassicalExperimentRunner:
                 distorted2 = func(img2, level)
                 snr_value = calculate_snr(self.img, distorted1)
 
-                # Execute optical flow tracking
-                prev_pts, next_pts, status = self.ct.optical_flow(distorted1, distorted2)
-
-                # Draw tracking arrows (Saved to task_images)
-                flow_vis = distorted1.copy()
-                tracked_points = 0
-                if prev_pts is not None and next_pts is not None and status is not None:
-                    tracked_points = int(status.sum())
-                    good_prev = prev_pts[status == 1]
-                    good_next = next_pts[status == 1]
-                    for pt_prev, pt_next in zip(good_prev, good_next):
-                        x1, y1 = map(int, pt_prev)
-                        x2, y2 = map(int, pt_next)
-                        cv2.arrowedLine(flow_vis, (x1, y1), (x2, y2), (0, 0, 255), 1, tipLength=0.3)
+                # Execute optical flow tracking via pure function
+                result = evaluate_optical_flow(distorted1, distorted2)
+                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_task_4_{name}_l{level}.jpg"), result['visualized_image'])
                 
-                cv2.imwrite(os.path.join(self.task_images_dir, f"annotated_task_4_{name}_l{level}.jpg"), flow_vis)
-                
-                results.append([name, level, float(snr_value), tracked_points])
-                degradation_data.append({"Distortion": name, "Level": level, "Score": tracked_points})
+                results.append([name, level, float(snr_value), result['metrics']['tracked_points']])
+                degradation_data.append({"Distortion": name, "Level": level, "Score": result['metrics']['tracked_points']})
 
         # Save Performance Table into tasks_graphs_and_tables
         df = pd.DataFrame(results, columns=["Distortion", "Level", "SNR", "Tracked_Points"])
