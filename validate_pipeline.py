@@ -103,7 +103,8 @@ class PipelineValidator:
             # Check for path slashes (should be forward slashes)
             path_cols = ['task_image_path', 'original_image_path', 'distorted_image_path']
             for col in path_cols:
-                if df[col].str.contains('\\').any():
+                series = df[col].fillna("").astype(str)
+                if series.str.contains("\\", regex=False).any():
                     self.warnings.append(f"⚠️  Column '{col}' contains backslashes (should be forward slashes)")
             
             return True

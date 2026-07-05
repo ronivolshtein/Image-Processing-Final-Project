@@ -208,7 +208,10 @@ marimo/_lsp/
 __marimo__/
 
 # Ignore project data folders
-data/
+# Ignore heavy image folders, but KEEP tables and plots!
+data/distorted_images/
+data/tasks_applied_on_distorted/
+data/yolo_finetune/
 datasets/
 
 # Ignore YOLO model weights
@@ -221,4 +224,5 @@ __pycache__/
 
 # Ignore OS files
 .DS_Store
+Thumbs.db
 Thumbs.db

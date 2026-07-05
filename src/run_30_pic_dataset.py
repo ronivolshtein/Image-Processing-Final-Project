@@ -108,6 +108,7 @@ class Week1BulkRunner:
         for task_name in self.task_names:
             task_dir = os.path.join(dirs['tasks_applied'], task_name)
             os.makedirs(task_dir, exist_ok=True)
+            os.makedirs(os.path.join(task_dir, "clean_0"), exist_ok=True)
             for dist_type in self.distortion_types:
                 for level in self.distortion_levels:
                     dist_task_dir = os.path.join(task_dir, f"{dist_type}_l{level}")
@@ -117,6 +118,12 @@ class Week1BulkRunner:
         os.makedirs(dirs['metadata_tables'], exist_ok=True)
         
         return dirs
+
+    def _get_task_output_subdir(self, distortion_type, level):
+        """Return the folder name used for a task output."""
+        if distortion_type == "clean" and level == 0:
+            return "clean_0"
+        return f"{distortion_type}_l{level}"
     
     def _normalize_path(self, path):
         """Convert all path slashes to forward slashes for cross-platform compatibility."""
@@ -208,7 +215,7 @@ class Week1BulkRunner:
             task_dir = os.path.join(
                 self.output_dirs['tasks_applied'],
                 task_name,
-                f"{distortion_type}_l{level}"
+                self._get_task_output_subdir(distortion_type, level)
             )
             output_path = os.path.join(task_dir, img_name)
             cv2.imwrite(output_path, vis_img)
@@ -227,7 +234,7 @@ class Week1BulkRunner:
                 task_image_path = os.path.join(
                     self.output_dirs['tasks_applied'],
                     task_name,
-                    f"{distortion_type}_l{level}",
+                    self._get_task_output_subdir(distortion_type, level),
                     img_name
                 )
                 try:
