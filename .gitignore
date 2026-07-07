@@ -211,6 +211,8 @@ __marimo__/
 # Ignore heavy image folders, but KEEP tables and plots!
 data/distorted_images/
 data/tasks_applied_on_distorted/
+data/distortions_output/
+data/tasks_output/
 data/yolo_finetune/
 data/enhanced_images/
 data/tasks_applied_on_enhanced/

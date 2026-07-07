@@ -1,5 +1,8 @@
-from src.yolo_tasks import YoloTasks
-from src.run_classical_experiments import run_all_classical
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+
+from yolo_tasks import YoloTasks
+from run_classical_experiments import run_all_classical
 # import cv2
 # import os
 # from src.classical_tasks import ClassicalTasks
