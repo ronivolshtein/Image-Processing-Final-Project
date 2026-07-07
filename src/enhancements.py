@@ -45,3 +45,12 @@ def sharpen_image(image):
                        [-1, 5, -1],
                        [0, -1, 0]])
     return cv2.filter2D(image, -1, kernel)
+
+# Single source of truth for which enhancement recovers which distortion, shared by
+# apply_enhancements.py and evaluate_enhancements.py so both stages always agree.
+ENHANCEMENT_FOR_DISTORTION = {
+    'gaussian_noise': lambda img: gaussian_filter(img, ksize=5),
+    'salt_pepper': lambda img: median_filter(img, ksize=5),
+    'low_light': lambda img: clahe_correction(img, clip_limit=2.0),
+    'motion_blur': lambda img: sharpen_image(img)
+}

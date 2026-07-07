@@ -1,6 +1,0 @@
-distortion,tracked_points
-clean,200
-gaussian_noise,200
-salt_pepper,200
-low_light,200
-motion_blur,200

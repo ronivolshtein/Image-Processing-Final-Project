@@ -212,6 +212,9 @@ __marimo__/
 data/distorted_images/
 data/tasks_applied_on_distorted/
 data/yolo_finetune/
+data/enhanced_images/
+data/tasks_applied_on_enhanced/
+
 datasets/
 
 # Ignore YOLO model weights
