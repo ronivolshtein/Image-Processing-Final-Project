@@ -202,9 +202,9 @@ Image folders are gitignored (regenerate by running the pipeline); both CSVs and
 
 ## 9. Remaining work
 
-- [ ] Before/after grid figure: one sample image × 4 distortions × 4 levels, embedded in §2.
-- [ ] Embed selected plots directly in this README (GitHub renders committed images).
-- [ ] Re-evaluate the fine-tuned model (`best.pt`) with `evaluate_map_gt.py` and update §6.4 with GT-verified numbers. *(Requires the weights — Nitzan.)*
+- [x] Before/after grid figure: one sample image × 4 distortions × 4 levels, embedded in §2.
+- [x] Embed selected plots directly in this README (GitHub renders committed images).
+- [ ] Re-evaluate the fine-tuned model (`best.pt`) with `evaluate_map_gt.py` and update §6.4 with GT-verified numbers. *(Requires the weights)*
 - [ ] Optional: real deblurring method for motion blur (motivated by §6.2). 
 - [ ] Optional: extend GT evaluation to segmentation mask-mAP.
 - [ ] Final pass: replace `README.md` with this file; prepare the PPT as its easy-to-read version.
