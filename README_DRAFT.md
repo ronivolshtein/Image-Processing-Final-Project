@@ -33,8 +33,13 @@ Each distortion is applied at 4 severity levels. Severity is quantified as the m
 | Low light | scale 0.7→0.15 with gamma 0.8→0.3 | 12.1 → 7.6 → 4.2 → 2.0 | CLAHE |
 | Motion blur | kernel = 5 / 11 / 21 / 35 px | 18.7 → 15.8 → 13.8 → 12.5 | Sharpening (unsharp) |
 
-Visual before/after examples per distortion and level, with task annotations drawn on the images, are saved under `data/tasks_applied_on_distorted/` and `data/tasks_applied_on_enhanced/` (regenerated locally by the pipeline — see §8). *(A consolidated before/after grid figure is listed in §9.)*
+![Distortion severity overview](data/tasks_graphs_and_tables/plots/grid_distortions.png)
+*Figure 1 — one sample image under each distortion at all four severity levels, labeled with per-image SNR. Note that motion blur costs relatively few dB yet damages detection the most (§6): SNR measures pixel-level damage, not semantic damage.*
 
+![Enhancement before/after](data/tasks_graphs_and_tables/plots/grid_enhancement.png)
+*Figure 2 — clean vs. distorted (level 3) vs. enhanced, per distortion. The median filter visibly restores the salt & pepper image; the sharpened motion-blur image remains smeared.*
+
+Per-image annotated outputs for every distortion, level, and task are saved under `data/tasks_applied_on_distorted/` and `data/tasks_applied_on_enhanced/` (regenerated locally by the pipeline — see §8).
 ## 3. Experimental protocol
 
 Experiments run on the first 30 images of COCO128 (compute constraints; consistent with the course guidance that small-scale evaluation is acceptable). The pipeline:
@@ -86,15 +91,23 @@ Activity metrics show trends but cannot verify correctness. We therefore additio
 
 Plots (`data/tasks_graphs_and_tables/plots/`): `map_curve_gaussian_noise.png`, `map_curve_salt_pepper.png`, `map_curve_low_light.png`, `map_curve_motion_blur.png` — mAP vs. SNR with the clean baseline as reference; `map_per_class_clean.png`, `map_per_class_drop.png` — per-class analysis.
 
+![mAP vs SNR — salt & pepper](data/tasks_graphs_and_tables/plots/map_curve_salt_pepper.png)
+![mAP vs SNR — motion blur](data/tasks_graphs_and_tables/plots/map_curve_motion_blur.png)
+*Figure 3 — the two extremes: near-full recovery by the median filter (top) vs. sharpening that performs worse than no processing (bottom). Gaussian-noise and low-light curves are linked above.*
+
 ### Per-class sensitivity
 
 Large, high-contrast classes (train, zebra, airplane) retain accuracy under distortion, while small or low-contrast classes (teddy bear, handbag, banana) collapse first. Two honest caveats: per-class values for rare classes (≤2 images in the sample) are indicative only, and isolated inversions (e.g. *bottle* scoring higher distorted than clean) reflect per-class sample size rather than genuine robustness gains.
+
+![Per-class mAP on clean images](data/tasks_graphs_and_tables/plots/map_per_class_clean.png)
 
 ## 6. Key findings
 
 1. **Recovery is distortion-dependent and matches theory.** The median filter vs. impulse noise is the textbook pairing and delivers near-full recovery (0.10 → 0.49 at level 3); CLAHE recovers low light mainly at severe levels; Gaussian smoothing trades noise for detail and recovers moderately.
 2. **Negative result — sharpening under motion blur.** Unsharp masking makes detection *worse* than no processing at mild-to-moderate blur (mAP 0.41 → 0.31 at level 1). Motion blur smears information along a direction; sharpening cannot un-smear it and instead amplifies the smeared edges, feeding the detector confident wrong gradients. Genuine recovery would require deconvolution-style deblurring.
 3. **Metrics that ignore GT overestimate (or invert) reality.** Three concrete cases from our own data: (a) enhanced salt-&-pepper images produce *more* detections than clean images, yet their GT mAP stays below the clean baseline; (b) optical flow tracks *more* points on distorted images (194.7 vs. 187.1) because noise manufactures fake corners for Shi-Tomasi; (c) the fine-tuned model "detects" 4.58 objects on low-light images vs. 3.17 clean. Detection counts measure activity, mAP measures correctness — a robustness study needs the latter.
+![Annotated detections: clean vs distorted vs enhanced](data/tasks_graphs_and_tables/plots/grid_annotated.png)
+*Figure 4 — YOLO detections at level 3. Salt & pepper: detections vanish and return after median filtering. Motion blur: sharpening fails to restore them. Gaussian noise: enhancement restores detection activity, but some returned boxes are low-confidence misclassifications ("dining table", "cake") — activity without correctness.*
 4. **Fine-tuning vs. enhancement (activity metrics; GT verification pending §9).** Fine-tuning recovers most consistently across distortions — expected, as the model is adapted to exactly these corruptions — while enhancement is the cheap, no-training win for noise-type distortions. Finding 3 means the fine-tuning numbers should be confirmed with GT mAP before final conclusions.
 
 ## 7. Limitations
