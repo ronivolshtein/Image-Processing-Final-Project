@@ -1,0 +1,6 @@
+distortion,tracked_points
+clean,200
+gaussian_noise,199
+salt_pepper,199
+low_light,200
+motion_blur,200

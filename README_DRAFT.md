@@ -5,6 +5,8 @@ Team:  Nitzan Sharabi · Roni Volshtein · Matan Sela
 
 This project studies how four classical image degradations — Gaussian noise, salt & pepper noise, low light, and motion blur — each applied at four severity levels, affect four computer-vision tasks: object detection, instance segmentation, template matching, and sparse optical flow. We then compare two recovery strategies: **classical image-processing enhancement** (preprocessing with course tools: smoothing, median filtering, CLAHE, sharpening) and **fine-tuning** a deep model on distorted data. All experiments use COCO128 / COCO128-Seg as compact public benchmarks with Ground Truth, and performance is measured both with task activity metrics and with **GT-based mAP, per class and per SNR**.
 
+---
+
 > **Draft status:** this document is the working draft of the final report. Open items are collected in [§9 Remaining work](#9-remaining-work) — everything else reflects committed results.
 
 ---
