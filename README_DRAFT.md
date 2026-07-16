@@ -60,7 +60,7 @@ Mean of each task's primary metric over the 30-image sample (distorted/enhanced 
 
 | Task | Metric | Clean | Distorted | Enhanced | Fine-tuned |
 |---|---|---|---|---|---|
-| Object detection | detected objects | 3.17 | 1.78 | 2.22 | 3.17 |
+| Object detection | detected objects | 3.17 | 1.78 | 2.22 | 3.02 |
 | Instance segmentation | segmented instances | 3.30 | 1.85 | 2.29 | — |
 | Template matching | matching score (NCC) | 1.00 | 0.80 | 0.87 | — |
 | Optical flow | tracked points | 187.1 | **194.7** | 189.5 | — |

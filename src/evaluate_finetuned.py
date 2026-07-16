@@ -27,6 +27,44 @@ def resolve_finetuned_model_path():
     return candidates[0]
 
 
+def validate_finetuned_rows(new_df, expected_conditions):
+    """Warn about incomplete, duplicate, or invalid fine-tuned metrics."""
+    condition_cols = ['image_name', 'distortion_type', 'level']
+    key_cols = condition_cols + ['metric_name']
+
+    duplicate_mask = new_df.duplicated(subset=key_cols, keep=False)
+    if duplicate_mask.any():
+        print(f"WARNING: Found {duplicate_mask.sum()} duplicate Fine-Tuned rows "
+              "for the same image/condition/metric.")
+
+    required_metrics = {'detected_objects', 'avg_confidence'}
+    metrics_per_condition = new_df.groupby(condition_cols)['metric_name'].agg(set)
+    complete_conditions = int(metrics_per_condition.apply(
+        lambda metrics: metrics == required_metrics
+    ).sum())
+    if complete_conditions != expected_conditions or len(metrics_per_condition) != expected_conditions:
+        print(f"WARNING: Expected two metrics for each of {expected_conditions} "
+              f"processed conditions, but only {complete_conditions} are complete.")
+
+    confidence = pd.to_numeric(
+        new_df.loc[new_df['metric_name'] == 'avg_confidence', 'metric_value'],
+        errors='coerce'
+    )
+    invalid_confidence = confidence.isna() | ~confidence.between(0.0, 1.0)
+    if invalid_confidence.any():
+        print(f"WARNING: Found {invalid_confidence.sum()} invalid avg_confidence values "
+              "(expected a number in [0, 1]).")
+
+    counts = pd.to_numeric(
+        new_df.loc[new_df['metric_name'] == 'detected_objects', 'metric_value'],
+        errors='coerce'
+    )
+    invalid_counts = counts.isna() | (counts < 0) | (counts % 1 != 0)
+    if invalid_counts.any():
+        print(f"WARNING: Found {invalid_counts.sum()} invalid detected_objects values "
+              "(expected a non-negative integer).")
+
+
 def main():
     finetuned_model_path = resolve_finetuned_model_path()
     print(f"🚀 Loading fine-tuned model from {finetuned_model_path}...")
@@ -47,8 +85,13 @@ def main():
     if 'model_type' not in df.columns:
         df['model_type'] = 'Baseline'
 
-    # Filter only object detection tasks that were run with the baseline model
-    base_det_df = df[(df['task_name'] == 'object_detection') & (df['model_type'] == 'Baseline')]
+    # Use one metadata row per image/condition so inference is performed once,
+    # independently of how many metric rows exist in the baseline CSV.
+    condition_cols = ['image_name', 'distortion_type', 'level']
+    base_det_df = df[
+        (df['task_name'] == 'object_detection') &
+        (df['model_type'] == 'Baseline')
+    ].drop_duplicates(subset=condition_cols).copy()
     
     if base_det_df.empty:
         print("⚠️ No baseline object detection rows found to evaluate.")
@@ -61,6 +104,7 @@ def main():
         return
 
     new_rows = []
+    processed_conditions = 0
     print(f"🔍 Evaluating {len(base_det_df)} distorted images with the Fine-Tuned model...")
 
     for index, row in base_det_df.iterrows():
@@ -70,20 +114,32 @@ def main():
             continue
 
         # Run inference using the newly trained model
-        results = model.predict(img_path, conf=0.25, verbose=False)[0]
-        
-        # Count the number of detected objects
-        detected_objects = len(results.boxes)
+        result = model.predict(img_path, conf=0.25, verbose=False)[0]
 
-        # Copy the baseline row and update it for the fine-tuned results
-        new_row = row.copy()
-        new_row['model_type'] = 'Fine-Tuned'
-        new_row['metric_value'] = detected_objects
-        new_rows.append(new_row)
+        detected_objects = len(result.boxes)
+        if detected_objects > 0:
+            avg_confidence = float(result.boxes.conf.mean().item())
+        else:
+            avg_confidence = 0.0
+
+        # Create both metrics explicitly while retaining all existing metadata.
+        count_row = row.copy()
+        count_row['model_type'] = 'Fine-Tuned'
+        count_row['metric_name'] = 'detected_objects'
+        count_row['metric_value'] = detected_objects
+
+        confidence_row = row.copy()
+        confidence_row['model_type'] = 'Fine-Tuned'
+        confidence_row['metric_name'] = 'avg_confidence'
+        confidence_row['metric_value'] = avg_confidence
+
+        new_rows.extend([count_row, confidence_row])
+        processed_conditions += 1
 
     if new_rows:
         # Create a DataFrame for the new results and append to the original
         new_df = pd.DataFrame(new_rows)
+        validate_finetuned_rows(new_df, expected_conditions=processed_conditions)
         updated_df = pd.concat([df, new_df], ignore_index=True)
         
         # Save back to CSV
