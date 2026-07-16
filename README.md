@@ -31,12 +31,12 @@ Each distortion is applied at 4 severity levels. Severity is quantified as the m
 | Motion blur | kernel = 5 / 11 / 21 / 35 px | 18.7 → 15.8 → 13.8 → 12.5 | Sharpening (unsharp) |
 
 ![Distortion severity overview](data/tasks_graphs_and_tables/plots/grid_distortions.png)
-*Figure 1 — one sample image under each distortion at all four severity levels, labeled with per-image SNR. Note that motion blur costs relatively few dB yet damages detection the most (§6): SNR measures pixel-level damage, not semantic damage.*
+*Figure 1 — one sample image under each distortion at all four severity levels, labeled with per-image SNR. Note that motion blur costs relatively few dB yet damages detection the most (6): SNR measures pixel-level damage, not semantic damage.*
 
 ![Enhancement before/after](data/tasks_graphs_and_tables/plots/grid_enhancement.png)
 *Figure 2 — clean vs. distorted (level 3) vs. enhanced, per distortion. The median filter visibly restores the salt & pepper image; the sharpened motion-blur image remains smeared.*
 
-Per-image annotated outputs for every distortion, level, and task are saved under `data/tasks_applied_on_distorted/` and `data/tasks_applied_on_enhanced/` (regenerated locally by the pipeline — see §8).
+Per-image annotated outputs for every distortion, level, and task are saved under `data/tasks_applied_on_distorted/` and `data/tasks_applied_on_enhanced/` (regenerated locally by the pipeline — see 8).
 ## 3. Experimental protocol
 
 Experiments run on the first 30 images of COCO128 (compute constraints; consistent with the course guidance that small-scale evaluation is acceptable). The pipeline:
@@ -47,7 +47,7 @@ Experiments run on the first 30 images of COCO128 (compute constraints; consiste
 4. **Fine-tuning** — YOLOv8n fine-tuned briefly on distorted images, with the train/test split done **by original image** so that distorted versions of the same image never appear in both sets; re-evaluated on distorted images (object detection only).
 5. **Measurement** — two complementary layers:
    (a) per-image task activity metrics, centralized in `metadata_summary_base.csv`;
-   (b) **GT-based mAP per class and per SNR** (`map_summary.csv`), described in §5.
+   (b) **GT-based mAP per class and per SNR** (`map_summary.csv`), described in 5.
 
 ## 4. Results — task activity metrics (all 4 tasks)
 
@@ -59,6 +59,7 @@ Mean of each task's primary metric over the 30-image sample (distorted/enhanced 
 | Instance segmentation | segmented instances | 3.30 | 1.85 | 2.29 | — |
 | Template matching | matching score (NCC) | 1.00 | 0.80 | 0.87 | — |
 | Optical flow | tracked points | 187.1 | **194.7** | 189.5 | — |
+Fine-tuning applies only to object detection: template matching and optical flow are classical algorithms with no trainable weights, and fine-tuning was scoped to the single GT-evaluated task (see section 5).
 
 Fine-tuning recovery for object detection, per distortion (mean detected objects):
 
@@ -71,14 +72,14 @@ Fine-tuning recovery for object detection, per distortion (mean detected objects
 
 Note also: on *clean* images the fine-tuned model detects 5.57 objects on average vs. 3.17 for the pretrained model — a 75% inflation in detection count that previews finding 4 below.
 
-Two values are bolded because they are *warnings*, not wins — see finding 3 in §6: optical flow tracking **more** points on distorted images, and the fine-tuned model detecting **more** objects on low-light images than the baseline detects on clean ones, are both artifacts of metrics that never consult the Ground Truth.
+Two values are bolded because they are *warnings*, not wins — see finding 3 in 6: optical flow tracking **more** points on distorted images, and the fine-tuned model detecting **more** objects on low-light images than the baseline detects on clean ones, are both artifacts of metrics that never consult the Ground Truth.
 
 Plots: `{task}_vs_level.png`, `{task}_vs_snr.png` (degradation), `{task}_enhancement_recovery_*.png`, `finetune_recovery_*.png` (recovery) — all in `data/tasks_graphs_and_tables/plots/`.
 
 ## 5. Results — GT-based accuracy (mAP per class, per SNR)
 
 Activity metrics show trends but cannot verify correctness. We therefore additionally evaluate object detection **against Ground Truth**: since all four distortions are geometry-preserving, the original COCO labels remain a valid answer key for every distorted and enhanced image. Script: `src/evaluate_map_gt.py`; results: `data/tasks_graphs_and_tables/map_summary.csv` (1,419 rows — overall + per-class, for 33 conditions: clean, 16 distorted, 16 enhanced).
-Per the project definition, GT-based accuracy evaluation is required for one task; we selected object detection as the GT-evaluated task, with the activity metrics of §4 covering all four tasks.
+Per the project definition, GT-based accuracy evaluation is required for one task; we selected object detection as the GT-evaluated task, with the activity metrics of 4 covering all four tasks.
 
 **Clean baseline on the 30-image sample: mAP50-95 = 0.581.** (On the full 128-image set the pretrained model scores 0.376 — the 30-image sample is an easier draw. All comparisons below use the same 30 images, so they are apples-to-apples.)
 
@@ -87,7 +88,7 @@ Per the project definition, GT-based accuracy evaluation is required for one tas
 | Salt & pepper | 0.40 → 0.28 → 0.10 → 0.04 | 0.51 → 0.50 → 0.49 → 0.37 | Median filter: near-full recovery even at severe levels |
 | Low light | 0.58 → 0.56 → 0.49 → 0.33 | 0.58 → 0.55 → 0.54 → 0.43 | CLAHE matters exactly where the damage is (severe levels) |
 | Gaussian noise | 0.46 → 0.31 → 0.16 → 0.06 | 0.49 → 0.38 → 0.26 → 0.14 | Moderate, consistent recovery |
-| Motion blur | 0.41 → 0.21 → 0.11 → 0.06 | 0.31 → 0.14 → 0.09 → 0.07 | **Sharpening hurts — negative result (§6.2)** |
+| Motion blur | 0.41 → 0.21 → 0.11 → 0.06 | 0.31 → 0.14 → 0.09 → 0.07 | **Sharpening hurts — negative result (6.2)** |
 
 Plots (`data/tasks_graphs_and_tables/plots/`): `map_curve_gaussian_noise.png`, `map_curve_salt_pepper.png`, `map_curve_low_light.png`, `map_curve_motion_blur.png` — mAP vs. SNR with the clean baseline as reference; `map_per_class_clean.png`, `map_per_class_drop.png` — per-class analysis.
 
@@ -115,7 +116,7 @@ Large, high-contrast classes (train, zebra, airplane) retain accuracy under dist
 - 30-image sample (compute limits): per-class numbers are noisy for rare classes.
 - Fine-tuning is a short, small-scale adaptation experiment (few epochs, nano model, detection only) — not a state-of-the-art claim.
 - GT-based mAP currently covers object detection; extending it to segmentation mask-mAP is a natural next step.
-- Motion blur lacks a genuine deblurring baseline (see §9).
+- Motion blur lacks a genuine deblurring baseline (see 9).
 
 ## 8. Reproducing the results
 
@@ -154,7 +155,7 @@ python src/apply_enhancements.py
 python src/evaluate_enhancements.py
 python src/plot_enhancement_results.py
 
-# Stage 3 — GT-based mAP evaluation and plots (this report §5)
+# Stage 3 — GT-based mAP evaluation and plots (this report 5)
 python src/evaluate_map_gt.py
 python src/plot_map_results.py
 ```
@@ -171,7 +172,7 @@ data/
 ├── tasks_applied_on_enhanced/      (same layout, on enhanced images)
 └── tasks_graphs_and_tables/
     ├── metadata_summary_base.csv   (central activity-metrics table)
-    ├── map_summary.csv             (GT-based mAP: condition/class/SNR — §5)
+    ├── map_summary.csv             (GT-based mAP: condition/class/SNR — 5)
     └── plots/                      (all comparison charts)
 ```
 
@@ -188,7 +189,7 @@ Image folders are gitignored (regenerate by running the pipeline); both CSVs and
 | `src/run_30_pic_dataset.py` | Stage 1 main runner |
 | `src/prepare_yolo_dataset.py`, `src/train_yolo.py`, `src/evaluate_finetuned.py` | Fine-tuning track |
 | `src/apply_enhancements.py`, `src/evaluate_enhancements.py` | Enhancement track |
-| `src/evaluate_map_gt.py` | **GT-based mAP per class / per SNR (§5)** |
+| `src/evaluate_map_gt.py` | **GT-based mAP per class / per SNR (5)** |
 | `src/generate_plots.py`, `src/plot_finetune_results.py`, `src/plot_enhancement_results.py`, `src/plot_map_results.py` | All charts |
 | `validate_pipeline.py` | Output validation |
 | `appendices/` | Legacy/unused scripts kept for reference |
@@ -202,4 +203,4 @@ Image folders are gitignored (regenerate by running the pipeline); both CSVs and
 
 ## 9. Possible extensions
 
-The project's scope is complete as defined; the findings above suggest two directions for anyone wishing to extend it. First, the negative result on motion blur (§6.2) indicates that recovery for this distortion lies beyond edge amplification — an extension could examine genuine deblurring methods (e.g., Wiener or Richardson-Lucy deconvolution, particularly convenient here since the blur kernel is known by construction) and test whether they achieve what sharpening could not. Second, running the evaluation on the full 128-image set rather than the 30-image sample would tighten the per-class statistics presented in §5.
+The project's scope is complete as defined; the findings above suggest two directions for anyone wishing to extend it. First, the negative result on motion blur (6.2) indicates that recovery for this distortion lies beyond edge amplification — an extension could examine genuine deblurring methods (e.g., Wiener or Richardson-Lucy deconvolution, particularly convenient here since the blur kernel is known by construction) and test whether they achieve what sharpening could not. Second, running the evaluation on the full 128-image set rather than the 30-image sample would tighten the per-class statistics presented in 5.
