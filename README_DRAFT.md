@@ -5,11 +5,6 @@ Team:  Nitzan Sharabi · Roni Volshtein · Matan Sela
 
 This project studies how four classical image degradations — Gaussian noise, salt & pepper noise, low light, and motion blur — each applied at four severity levels, affect four computer-vision tasks: object detection, instance segmentation, template matching, and sparse optical flow. We then compare two recovery strategies: **classical image-processing enhancement** (preprocessing with course tools: smoothing, median filtering, CLAHE, sharpening) and **fine-tuning** a deep model on distorted data. All experiments use COCO128 / COCO128-Seg as compact public benchmarks with Ground Truth, and performance is measured both with task activity metrics and with **GT-based mAP, per class and per SNR**.
 
----
-
-> **Draft status:** this document is the working draft of the final report. Open items are collected in [§9 Remaining work](#9-remaining-work) — everything else reflects committed results.
-
----
 
 ## 1. Project decisions
 
@@ -60,7 +55,7 @@ Mean of each task's primary metric over the 30-image sample (distorted/enhanced 
 
 | Task | Metric | Clean | Distorted | Enhanced | Fine-tuned |
 |---|---|---|---|---|---|
-| Object detection | detected objects | 3.17 | 1.78 | 2.22 | 3.02 |
+| Object detection | detected objects | 3.17 | 1.78 | 2.22 | 3.05 |
 | Instance segmentation | segmented instances | 3.30 | 1.85 | 2.29 | — |
 | Template matching | matching score (NCC) | 1.00 | 0.80 | 0.87 | — |
 | Optical flow | tracked points | 187.1 | **194.7** | 189.5 | — |
@@ -69,10 +64,12 @@ Fine-tuning recovery for object detection, per distortion (mean detected objects
 
 | Distortion | Distorted | Enhanced | Fine-tuned |
 |---|---|---|---|
-| Gaussian noise | 1.78 | 2.03 | 2.86 |
-| Salt & pepper | 1.69 | 2.84 | 2.32 |
+| Gaussian noise | 1.78 | 2.03 | 2.81 |
+| Salt & pepper | 1.69 | 2.84 | 2.51 |
 | Low light | 2.47 | 2.95 | **4.58** |
 | Motion blur | 1.17 | 1.07 | 2.32 |
+
+Note also: on *clean* images the fine-tuned model detects 5.57 objects on average vs. 3.17 for the pretrained model — a 75% inflation in detection count that previews finding 4 below.
 
 Two values are bolded because they are *warnings*, not wins — see finding 3 in §6: optical flow tracking **more** points on distorted images, and the fine-tuned model detecting **more** objects on low-light images than the baseline detects on clean ones, are both artifacts of metrics that never consult the Ground Truth.
 
@@ -81,6 +78,7 @@ Plots: `{task}_vs_level.png`, `{task}_vs_snr.png` (degradation), `{task}_enhance
 ## 5. Results — GT-based accuracy (mAP per class, per SNR)
 
 Activity metrics show trends but cannot verify correctness. We therefore additionally evaluate object detection **against Ground Truth**: since all four distortions are geometry-preserving, the original COCO labels remain a valid answer key for every distorted and enhanced image. Script: `src/evaluate_map_gt.py`; results: `data/tasks_graphs_and_tables/map_summary.csv` (1,419 rows — overall + per-class, for 33 conditions: clean, 16 distorted, 16 enhanced).
+Per the project definition, GT-based accuracy evaluation is required for one task; we selected object detection as the GT-evaluated task, with the activity metrics of §4 covering all four tasks.
 
 **Clean baseline on the 30-image sample: mAP50-95 = 0.581.** (On the full 128-image set the pretrained model scores 0.376 — the 30-image sample is an easier draw. All comparisons below use the same 30 images, so they are apples-to-apples.)
 
@@ -110,7 +108,7 @@ Large, high-contrast classes (train, zebra, airplane) retain accuracy under dist
 3. **Metrics that ignore GT overestimate (or invert) reality.** Three concrete cases from our own data: (a) enhanced salt-&-pepper images produce *more* detections than clean images, yet their GT mAP stays below the clean baseline; (b) optical flow tracks *more* points on distorted images (194.7 vs. 187.1) because noise manufactures fake corners for Shi-Tomasi; (c) the fine-tuned model "detects" 4.58 objects on low-light images vs. 3.17 clean. Detection counts measure activity, mAP measures correctness — a robustness study needs the latter.
 ![Annotated detections: clean vs distorted vs enhanced](data/tasks_graphs_and_tables/plots/grid_annotated.png)
 *Figure 4 — YOLO detections at level 3. Salt & pepper: detections vanish and return after median filtering. Motion blur: sharpening fails to restore them. Gaussian noise: enhancement restores detection activity, but some returned boxes are low-confidence misclassifications ("dining table", "cake") — activity without correctness.*
-4. **Fine-tuning vs. enhancement (activity metrics; GT verification pending §9).** Fine-tuning recovers most consistently across distortions — expected, as the model is adapted to exactly these corruptions — while enhancement is the cheap, no-training win for noise-type distortions. Finding 3 means the fine-tuning numbers should be confirmed with GT mAP before final conclusions.
+4. **Fine-tuning vs. enhancement — the GT verdict.** Evaluated on 10 COCO128 images outside the pipeline's 30 (unseen by the fine-tuned model by construction; `map_summary_finetuned.csv`), fine-tuning yields modest real gains on noise distortions (mAP50-95 +0.03-0.06 on salt & pepper and Gaussian noise), **no measurable gain on low light or motion blur**, and a slight cost on clean images (0.396 → 0.378 — mild catastrophic forgetting from the short adaptation). This contradicts the counting-based picture (e.g. "+99% recovery on motion blur"), which finding 3 explains: the fine-tuned model simply fires far more boxes (5.57 vs. 3.17 detections on clean images). Conclusion: at this training scale, a matched classical enhancement (e.g. median filtering for impulse noise) recovers far more accuracy than fine-tuning, at zero training cost; fine-tuning's counting-metric advantage was largely over-detection.
 
 ## 7. Limitations
 
@@ -202,11 +200,6 @@ Image folders are gitignored (regenerate by running the pipeline); both CSVs and
 - **YOLO models not downloading** — check connectivity; `python main.py` downloads `yolov8n.pt` / `yolov8n-seg.pt` on first run.
 - **Enhanced image not found** — run `apply_enhancements.py` before `evaluate_enhancements.py`.
 
-## 9. Remaining work
+## 9. Future work
 
-- [x] Before/after grid figure: one sample image × 4 distortions × 4 levels, embedded in §2.
-- [x] Embed selected plots directly in this README (GitHub renders committed images).
-- [ ] Re-evaluate the fine-tuned model (`best.pt`) with `evaluate_map_gt.py` and update §6.4 with GT-verified numbers. *(Requires the weights)*
-- [ ] Optional: real deblurring method for motion blur (motivated by §6.2). 
-- [ ] Optional: extend GT evaluation to segmentation mask-mAP.
-- [ ] Final pass: replace `README.md` with this file; prepare the PPT as its easy-to-read version.
+The negative result on motion blur (§6.2) motivates the natural next step: replacing sharpening with a genuine deblurring method (e.g., Wiener or Richardson-Lucy deconvolution — feasible here since the blur kernel is known by construction) and measuring whether it achieves the recovery that edge amplification could not. Scaling the evaluation from the 30-image sample to the full 128-image set would also tighten the per-class statistics.
