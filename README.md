@@ -5,6 +5,20 @@ Team:  Nitzan Sharabi · Roni Volshtein · Matan Sela
 
 This project studies how four classical image degradations — Gaussian noise, salt & pepper noise, low light, and motion blur — each applied at four severity levels, affect four computer-vision tasks: object detection, instance segmentation, template matching, and sparse optical flow. We then compare two recovery strategies: **classical image-processing enhancement** (preprocessing with course tools: smoothing, median filtering, CLAHE, sharpening) and **fine-tuning** a deep model on distorted data. All experiments use COCO128 / COCO128-Seg as compact public benchmarks with Ground Truth, and performance is measured both with task activity metrics and with **GT-based mAP, per class and per SNR**.
 
+## Contents
+
+1. [Project decisions](#1-project-decisions)
+2. [Distortions, severity, and SNR](#2-distortions-severity-and-snr)
+3. [Experimental protocol](#3-experimental-protocol)
+4. [Results — task activity metrics](#4-results--task-activity-metrics-all-4-tasks)
+5. [Results — GT-based accuracy (mAP per class, per SNR)](#5-results--gt-based-accuracy-map-per-class-per-snr)
+6. [Key findings](#6-key-findings)
+7. [Limitations](#7-limitations)
+8. [Reproducing the results](#8-reproducing-the-results)
+9. [Possible extensions](#9-possible-extensions)
+
+---
+
 
 ## 1. Project decisions
 
@@ -179,6 +193,7 @@ data/
 Image folders are gitignored (regenerate by running the pipeline); both CSVs and all plots are committed.
 
 ### File reference
+File names follow their pipeline role: `run_*` = experiment runners, `evaluate_*` = metric computation, `plot_*` / `generate_plots` = chart generation, `apply_*` / `prepare_*` = data preparation, and `make_*` = figure assembly.
 
 | File | Purpose |
 |---|---|
