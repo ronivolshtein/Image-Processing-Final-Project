@@ -207,7 +207,8 @@ File names follow their pipeline role: `run_*` = experiment runners, `evaluate_*
 | `src/evaluate_map_gt.py` | **GT-based mAP per class / per SNR (5)** |
 | `src/generate_plots.py`, `src/plot_finetune_results.py`, `src/plot_enhancement_results.py`, `src/plot_map_results.py` | All charts |
 | `validate_pipeline.py` | Output validation |
-| `appendices/` | Legacy/unused scripts kept for reference |
+| `appendices/` | Legacy scripts and pre-repair CSV backup, kept for reference |
+| `appendices/working_guides/` | Internal setup and workflow documents from development |
 
 ### Troubleshooting
 
