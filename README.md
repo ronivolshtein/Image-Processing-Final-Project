@@ -3,7 +3,14 @@
 **Image Processing & Computer Vision — Course Project**
 Team:  Nitzan Sharabi · Roni Volshtein · Matan Sela
 
-This project studies how four classical image degradations — Gaussian noise, salt & pepper noise, low light, and motion blur — each applied at four severity levels, affect four computer-vision tasks: object detection, instance segmentation, template matching, and sparse optical flow. We then compare two recovery strategies: **classical image-processing enhancement** (preprocessing with course tools: smoothing, median filtering, CLAHE, sharpening) and **fine-tuning** a deep model on distorted data. All experiments use COCO128 / COCO128-Seg as compact public benchmarks with Ground Truth, and performance is measured both with task activity metrics and with **GT-based mAP, per class and per SNR**.
+This project asks a simple question: **how much accuracy do computer-vision algorithms lose when images degrade — and what brings it back?**
+
+- **4 distortions** — Gaussian noise · salt & pepper · low light · motion blur, each at **4 severity levels** measured as SNR (dB)
+- **4 vision tasks** — object detection (DL) · instance segmentation (DL) · template matching · sparse optical flow
+- **2 recovery strategies** — classical enhancement matched to each distortion (median filter, CLAHE, smoothing, sharpening) vs. **fine-tuning** a deep model on distorted data
+- **1 dataset** — COCO128 / COCO128-Seg: compact, public, with Ground Truth
+
+Every distortion × severity × task combination is evaluated twice: with task activity metrics, and — for object detection — with **GT-based mAP, per class and per SNR**.
 
 ## Contents
 
@@ -205,6 +212,8 @@ File names follow their pipeline role: `run_*` = experiment runners, `evaluate_*
 | `src/prepare_yolo_dataset.py`, `src/train_yolo.py`, `src/evaluate_finetuned.py` | Fine-tuning track |
 | `src/apply_enhancements.py`, `src/evaluate_enhancements.py` | Enhancement track |
 | `src/evaluate_map_gt.py` | **GT-based mAP per class / per SNR (5)** |
+| `src/evaluate_map_finetuned.py` | GT-based mAP: fine-tuned vs. pretrained, on 10 unseen images (section 6.4) |
+| `src/make_before_after_grids.py` | Builds the before/after figure grids (Figures 1, 2, 4) |
 | `src/generate_plots.py`, `src/plot_finetune_results.py`, `src/plot_enhancement_results.py`, `src/plot_map_results.py` | All charts |
 | `validate_pipeline.py` | Output validation |
 | `appendices/` | Legacy scripts and pre-repair CSV backup, kept for reference |
