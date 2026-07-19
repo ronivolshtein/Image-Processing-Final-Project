@@ -215,7 +215,73 @@ The object-detection recovery depends strongly on the distortion:
 
 ![Object-detection enhancement recovery](data/tasks_graphs_and_tables/plots/object_detection_enhancement_recovery_lines.png)
 
-*Figure 8 — Detection activity before and after enhancement by distortion and severity. The improvement is method-dependent rather than universal.*
+*Figure 8 — Detection activity before and after enhancement by distortion and severity. In this and the following recovery plots, “Baseline” means the distorted image before enhancement, not the clean-image baseline. The improvement is method-dependent rather than universal.*
+
+### 7.1 Object-detection recovery
+
+The detector shows three different types of enhancement behavior:
+
+- **Strong recovery under salt-and-pepper noise:** median filtering produces a large and persistent separation from the distorted curve. At levels 3 and 4, detection activity remains near 2.8 and 2.7 objects after enhancement, while the unprocessed distorted images fall to roughly 1.4 and 0.7.
+- **Moderate recovery under Gaussian noise:** smoothing helps at every severity, but the enhanced curve still declines as variance increases. Suppressing noise also removes some detail, so the method cannot return the detector to its clean baseline.
+- **Severity-dependent recovery under low light:** CLAHE helps most clearly from level 2 onward, where local contrast restoration preserves more detectable objects.
+- **No recovery under motion blur:** sharpening is slightly worse at mild and moderate levels and only approximately equal at level 3. Edge amplification cannot reconstruct the directionally smeared information.
+
+These counts describe detector activity. The GT evaluation in Stage 4 verifies which recovered boxes are correct.
+
+### 7.2 Instance-segmentation recovery
+
+![Instance-segmentation enhancement recovery](data/tasks_graphs_and_tables/plots/segment_instances_enhancement_recovery_lines.png)
+
+*Figure 9 — Number of segmented instances before and after paired enhancement. “Baseline” denotes the distorted, unenhanced condition. The median filter produces the largest recovery; sharpening provides almost none.*
+
+The pretrained segmentation model follows patterns similar to object detection, which is reasonable because both YOLO tasks depend on semantic features and identifiable object boundaries:
+
+- **Gaussian noise:** Gaussian smoothing provides a small, consistent increase in segmented-instance count. The curves remain close because smoothing removes both noise and some boundary detail.
+- **Salt-and-pepper noise:** median filtering produces the strongest segmentation recovery. The enhanced model retains roughly 2.6–3.3 segmented instances across all levels, while the distorted curve falls from about 2.3 to 0.8.
+- **Low light:** CLAHE has limited effect at mild levels but becomes useful at severe darkness. At level 4, the enhanced images produce about 2.6 instances compared with about 1.8 before enhancement.
+- **Motion blur:** sharpening does not restore segmentation activity and is slightly worse at the first two levels. The two curves converge only after both have already collapsed.
+
+This agreement between detection and segmentation supports a common qualitative conclusion: impulse-noise removal and severe-low-light contrast restoration help the pretrained deep models, while unsharp masking is not a solution to motion blur. However, segmented-instance count is still only an activity metric. A rigorous segmentation conclusion would require mask IoU or mask mAP against COCO segmentation GT.
+
+### 7.3 Template-matching recovery
+
+![Template-matching enhancement recovery](data/tasks_graphs_and_tables/plots/template_matching_enhancement_recovery_lines.png)
+
+*Figure 10 — NCC similarity to the known clean template before and after enhancement. Gaussian and median filtering preserve the match strongly; CLAHE and sharpening reduce the score relative to leaving their distorted inputs unprocessed.*
+
+Template matching reveals that an enhancement can help one vision task while hurting another:
+
+- **Gaussian noise:** without preprocessing, NCC falls from approximately 0.93 to 0.55. Gaussian smoothing keeps the score between roughly 0.94 and 0.86. The filter suppresses random pixel deviations, so the local pattern again resembles the clean reference.
+- **Salt-and-pepper noise:** median filtering almost completely stabilizes the match, keeping NCC near 0.90 across all four levels instead of falling to roughly 0.42. This is one of the clearest demonstrations of a correctly matched enhancement method in the project.
+- **Low light:** the distorted images already retain very high NCC because normalized correlation tolerates broad intensity scaling. CLAHE slightly lowers the score at every level by changing the local intensity distribution relative to the original clean template.
+- **Motion blur:** sharpening remains below the unprocessed blurred-image curve. It increases local contrast but does not reproduce the original spatial pattern that NCC is trying to match.
+
+This result adds an important qualification to “enhancement recovery.” An image is not enhanced in an absolute task-independent sense. It is transformed in a way that may restore information useful to one method while changing information used by another. Median filtering is beneficial to both deep inference and template similarity under impulse noise; CLAHE can help deep object inference in severe darkness while slightly reducing similarity to a fixed clean template.
+
+### 7.4 Sparse-optical-flow recovery
+
+![Optical-flow enhancement recovery](data/tasks_graphs_and_tables/plots/optical_flow_enhancement_recovery_lines.png)
+
+*Figure 11 — Tracked-point count before and after enhancement. These curves must not be read as accuracy curves: neither line checks the estimated tracks against known physical displacement.*
+
+The optical-flow recovery plot reinforces the metric limitation discovered in the degradation stage:
+
+- **Gaussian noise:** smoothing slightly reduces the number of tracks at mild levels, while both curves approach the algorithm's effective point limit at stronger levels. A high count may include noise-induced features.
+- **Salt-and-pepper noise:** the distorted images remain close to 198 tracked points, while median filtering lowers the count to roughly 170–184. This apparent “loss” can actually mean that the filter removed impulse pixels that were incorrectly accepted as corners.
+- **Low light:** CLAHE raises the tracked-point count at mild levels but lowers it at severe levels. Without a known motion field, neither direction can be classified as a correctness improvement.
+- **Motion blur:** distorted and sharpened images both produce high tracked-point counts, despite motion blur being highly destructive to object detection. Count saturation hides whether individual tracks correspond to real image motion.
+
+For optical flow, enhancement should ultimately be evaluated using synthetic translation or another known transformation. That would make it possible to compute endpoint error, track survival on the same physical points, and the fraction of geometrically correct tracks. The current experiment instead demonstrates how an apparently intuitive activity metric can invert the perceived robustness result.
+
+### 7.5 Cross-task enhancement conclusions
+
+Looking across the four recovery figures produces conclusions that are not visible from the overall averages alone:
+
+1. **Salt-and-pepper plus median filtering is the most consistently successful pair.** It restores detection and segmentation activity, preserves template NCC, and removes many noise-created optical-flow features.
+2. **Gaussian smoothing provides partial recovery.** It improves deep-task activity and template similarity, but its unavoidable detail loss prevents complete recovery.
+3. **CLAHE is task-dependent.** It helps object detection and segmentation mainly at severe darkness, yet slightly reduces NCC because template matching was defined relative to the original clean intensity pattern.
+4. **Unsharp masking does not solve motion blur.** It fails for detection and segmentation, decreases template similarity, and produces ambiguous optical-flow counts.
+5. **The meaning of recovery depends on the metric.** A higher detection count, segmentation count or tracked-point count is not automatically a more correct result. Only the GT stage can establish detection correctness.
 
 Detection counts are useful for showing behavior, but a returned box can be incorrect. The next stage checks recovery against the actual COCO annotations.
 
@@ -242,15 +308,15 @@ Results are saved overall and per class in `map_summary.csv`.
 
 ![mAP versus SNR — salt and pepper](data/tasks_graphs_and_tables/plots/map_curve_salt_pepper.png)
 
-*Figure 9 — Median filtering substantially restores detection correctness under impulse noise, not merely the number of predictions.*
+*Figure 12 — Median filtering substantially restores detection correctness under impulse noise, not merely the number of predictions.*
 
 ![mAP versus SNR — motion blur](data/tasks_graphs_and_tables/plots/map_curve_motion_blur.png)
 
-*Figure 10 — Unsharp masking performs below the unprocessed blurred image at mild and moderate levels. Sharpening amplifies smeared gradients but cannot reconstruct information lost along the blur direction.*
+*Figure 13 — Unsharp masking performs below the unprocessed blurred image at mild and moderate levels. Sharpening amplifies smeared gradients but cannot reconstruct information lost along the blur direction.*
 
 ![Annotated clean, distorted and enhanced detections](data/tasks_graphs_and_tables/plots/grid_annotated.png)
 
-*Figure 11 — Qualitative detection results at level 3. Salt-and-pepper detections disappear and return after median filtering. Motion-blur detections remain largely absent. Gaussian smoothing returns some boxes, including incorrect low-confidence classes—illustrating why count alone is insufficient.*
+*Figure 14 — Qualitative detection results at level 3. Salt-and-pepper detections disappear and return after median filtering. Motion-blur detections remain largely absent. Gaussian smoothing returns some boxes, including incorrect low-confidence classes—illustrating why count alone is insufficient.*
 
 ### Per-class behavior
 
@@ -258,7 +324,7 @@ Large, high-contrast classes such as train, zebra and airplane often retain more
 
 ![Per-class clean versus distorted drop](data/tasks_graphs_and_tables/plots/map_per_class_drop.png)
 
-*Figure 12 — Per-class mAP50–95 on clean images and level-2 distorted conditions. Rare-class inversions can reflect small sample size rather than genuine robustness.*
+*Figure 15 — Per-class mAP50–95 on clean images and level-2 distorted conditions. Rare-class inversions can reflect small sample size rather than genuine robustness.*
 
 ---
 
