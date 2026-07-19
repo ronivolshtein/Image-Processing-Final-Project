@@ -332,6 +332,36 @@ Large, high-contrast classes such as train, zebra and airplane often retain more
 
 Fine-tuning was scoped to **YOLOv8n object detection only**. The YOLOv8n-seg model remained pretrained and was evaluated only in the clean, distorted and enhanced activity experiments.
 
+### 9.1 Preserved training artifacts
+
+The repository includes the following compact artifacts from the original training run:
+
+| Artifact | Purpose |
+|---|---|
+| `models/finetuned_detection/best.pt` | The fine-tuned YOLOv8n detection checkpoint selected by the trainer using validation performance |
+| `models/finetuned_detection/args.yaml` | The original Ultralytics training configuration, including model, epochs, batch size, image size, seed and augmentation parameters |
+| `data/training_results/detection/results.csv` | Per-epoch training losses, validation losses, precision, recall, mAP50 and mAP50–95 |
+| `data/training_results/detection/results.png` | Ultralytics visualization of the training and validation history |
+
+The configuration confirms that the model was initialized from pretrained `yolov8n.pt` weights and trained for 10 epochs using 640-pixel images, batch size 8 and deterministic seed 0. The stored checkpoint is approximately 6.5 MB. Standard pretrained weights are not duplicated as project artifacts because Ultralytics can obtain them separately.
+
+![YOLO fine-tuning history](data/training_results/detection/results.png)
+
+*Figure 16 — Training and validation history for the 10-epoch object-detection adaptation. Training losses decrease continuously, while validation losses increase and validation mAP falls after the first epoch. This is evidence of rapid overfitting on the small adaptation dataset and explains why `best.pt`, rather than the final-epoch checkpoint, is the relevant saved model.*
+
+### 9.2 Training behavior
+
+The training curves provide a more complete interpretation than the final checkpoint alone:
+
+- Training box loss decreases from 1.64 to 1.00, classification loss from 2.75 to 0.87, and distribution focal loss from 1.65 to 1.15.
+- Validation losses move in the opposite direction: box loss rises from 1.57 to 1.77 and classification loss from 2.29 to 3.09.
+- Validation mAP50–95 is highest at epoch 1 (`0.320`) and falls to `0.183` by epoch 10.
+- Recall also declines from approximately `0.357` to `0.245`, while precision fluctuates rather than improving consistently.
+
+The network therefore learned the fine-tuning images increasingly well without generalizing better to its validation set. This behavior is consistent with a very small adaptation experiment and is one reason the fine-tuned results are treated as a limited extension rather than the main project conclusion.
+
+### 9.3 Fine-tuned evaluation
+
 Two fine-tuning evaluations appear in the project:
 
 1. `evaluate_finetuned.py` records detection count and confidence on the main experimental conditions.
@@ -348,7 +378,7 @@ The GT evaluation gives the more reliable interpretation:
 
 Fine-tuning and enhancement were evaluated on different image samples, so they should not be treated as a controlled head-to-head ranking. The evidence shows strong enhancement recovery in the 30-image main experiment and modest fine-tuning gains in the additional 10-image evaluation.
 
-> Reproducibility note: the current repository preserves the fine-tuning result tables and evaluation code, but not the original preparation implementation, exact training manifest or fine-tuned checkpoint. The exact historical split therefore cannot currently be reconstructed from the repository alone.
+> Reproducibility note: the repository now preserves the fine-tuned checkpoint, original training arguments, epoch-by-epoch results and evaluation outputs. It does not preserve the original dataset-preparation implementation or exact training manifest, so the historical training split still cannot be reconstructed from the repository alone.
 
 ---
 
@@ -389,8 +419,9 @@ All four tasks were run across the pipeline. Object detection was selected for t
 - The main experiment uses 30 images because of compute constraints; per-class statistics are noisy for rare classes.
 - GT-based robustness evaluation covers object detection. Segmentation mask mAP, optical-flow endpoint error and template-localization error were not evaluated.
 - Fine-tuning covers object detection only and represents short, small-scale adaptation rather than an optimized training study.
+- Fine-tuning shows rapid overfitting: training losses decrease while validation losses increase and validation mAP declines after epoch 1.
 - Enhancement and fine-tuning were not compared on the same held-out evaluation set.
-- The original fine-tuning preparation code, exact split manifest and checkpoint are not currently preserved in the repository.
+- The checkpoint and training metrics are preserved, but the original fine-tuning preparation code and exact split manifest are not.
 - The motion-blur recovery method is edge sharpening, not a genuine deconvolution method.
 
 ---
@@ -461,11 +492,15 @@ python src/make_before_after_grids.py
 data/yolo_finetune/finetune_dataset.yaml
 ```
 
-The current `src/prepare_yolo_dataset.py` does not generate that dataset, and the original preparation implementation is not preserved. Fine-tuning cannot presently be reproduced from a fresh clone until that stage is reconstructed. Fine-tuned GT evaluation additionally requires:
+The current `src/prepare_yolo_dataset.py` does not generate that dataset, and the original preparation implementation is not preserved. Training cannot presently be reproduced from a fresh clone until that stage is reconstructed.
+
+The trained checkpoint is preserved at:
 
 ```text
-runs/detect/finetune_distorted/weights/best.pt
+models/finetuned_detection/best.pt
 ```
+
+The fine-tuned evaluation scripts should use this checkpoint path. The original `args.yaml` is retained as evidence of the historical run and contains the absolute dataset path from the training computer; that historical path is not expected to exist on another machine.
 
 ---
 
@@ -489,6 +524,10 @@ runs/detect/finetune_distorted/weights/best.pt
 | `src/train_yolo.py` | Fine-tunes YOLOv8n detection if a prepared dataset is available | Fine-tuning extension |
 | `src/evaluate_finetuned.py` | Measures fine-tuned detection activity | Fine-tuning extension |
 | `src/evaluate_map_finetuned.py` | Compares pretrained and fine-tuned detection against GT | Fine-tuning extension |
+| `models/finetuned_detection/best.pt` | Preserved best fine-tuned object-detection checkpoint | Fine-tuning artifact |
+| `models/finetuned_detection/args.yaml` | Original Ultralytics training configuration | Fine-tuning artifact |
+| `data/training_results/detection/results.csv` | Per-epoch training and validation metrics | Fine-tuning artifact |
+| `data/training_results/detection/results.png` | Training/validation curve summary | Fine-tuning artifact |
 | `src/make_before_after_grids.py` | Creates qualitative README figures | Reporting utility |
 | `src/prepare_yolo_dataset.py` | Currently contains plotting logic rather than dataset preparation | Needs reconstruction/renaming |
 | `src/classical_tasks.py` | Earlier/secondary classical implementation | Not part of the documented main run |
@@ -498,7 +537,7 @@ runs/detect/finetune_distorted/weights/best.pt
 
 ## 14. Possible extensions
 
-1. **Reconstruct the fine-tuning pipeline:** preserve a split-by-original-image manifest, dataset YAML, training parameters and downloadable checkpoint.
+1. **Reconstruct the fine-tuning data pipeline:** preserve a split-by-original-image manifest, dataset YAML and the code that generates the training structure. The checkpoint and training parameters are now preserved.
 2. **Run a controlled recovery comparison:** evaluate distorted, enhanced and fine-tuned models on the same held-out images.
 3. **Add segmentation GT:** calculate mask mAP or IoU across distortion severity.
 4. **Define optical-flow accuracy:** generate known geometric displacement and measure endpoint error rather than tracked-point count.
