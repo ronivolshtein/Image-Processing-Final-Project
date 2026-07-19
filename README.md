@@ -1,7 +1,7 @@
 # Robustness of Classical and Deep Vision Methods under Image Processing Degradations
 
 **Image Processing & Computer Vision — Course Project**
-Team:  Nitzan Sharabi · Roni Volshtein · Matan Sela
+Team:  Nitzan Sharabi · Roni Volshtein · Matan Sella
 
 This project asks a simple question: **how much accuracy do computer-vision algorithms lose when images degrade — and what brings it back?**
 
