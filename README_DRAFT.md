@@ -338,7 +338,7 @@ The repository includes the following compact artifacts from the original traini
 
 | Artifact | Purpose |
 |---|---|
-| `models/finetuned_detection/best.pt` | The fine-tuned YOLOv8n detection checkpoint selected by the trainer using validation performance |
+| `runs/detect/finetune_distorted/weights/best.pt` | The fine-tuned YOLOv8n detection checkpoint selected by the trainer using validation performance |
 | `models/finetuned_detection/args.yaml` | The original Ultralytics training configuration, including model, epochs, batch size, image size, seed and augmentation parameters |
 | `data/training_results/detection/results.csv` | Per-epoch training losses, validation losses, precision, recall, mAP50 and mAP50–95 |
 | `data/training_results/detection/results.png` | Ultralytics visualization of the training and validation history |
@@ -494,10 +494,10 @@ data/yolo_finetune/finetune_dataset.yaml
 
 The current `src/prepare_yolo_dataset.py` does not generate that dataset, and the original preparation implementation is not preserved. Training cannot presently be reproduced from a fresh clone until that stage is reconstructed.
 
-The trained checkpoint is preserved at:
+The trained checkpoint is preserved at the path used by the evaluation scripts:
 
 ```text
-models/finetuned_detection/best.pt
+runs/detect/finetune_distorted/weights/best.pt
 ```
 
 The fine-tuned evaluation scripts should use this checkpoint path. The original `args.yaml` is retained as evidence of the historical run and contains the absolute dataset path from the training computer; that historical path is not expected to exist on another machine.
@@ -524,7 +524,7 @@ The fine-tuned evaluation scripts should use this checkpoint path. The original 
 | `src/train_yolo.py` | Fine-tunes YOLOv8n detection if a prepared dataset is available | Fine-tuning extension |
 | `src/evaluate_finetuned.py` | Measures fine-tuned detection activity | Fine-tuning extension |
 | `src/evaluate_map_finetuned.py` | Compares pretrained and fine-tuned detection against GT | Fine-tuning extension |
-| `models/finetuned_detection/best.pt` | Preserved best fine-tuned object-detection checkpoint | Fine-tuning artifact |
+| `runs/detect/finetune_distorted/weights/best.pt` | Preserved best fine-tuned object-detection checkpoint | Fine-tuning artifact |
 | `models/finetuned_detection/args.yaml` | Original Ultralytics training configuration | Fine-tuning artifact |
 | `data/training_results/detection/results.csv` | Per-epoch training and validation metrics | Fine-tuning artifact |
 | `data/training_results/detection/results.png` | Training/validation curve summary | Fine-tuning artifact |

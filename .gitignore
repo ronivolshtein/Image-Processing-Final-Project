@@ -227,13 +227,18 @@ data/yolo_finetune/*
 
 # Ignore YOLO model weights
 *.pt
-# Keep the final project-specific fine-tuned checkpoint
-!models/finetuned_detection/best.pt
 yolov8n-seg.pt
 yolov8n.pt
 
-# Ignore PyTorch/YOLO cache and run folders
-runs/
+# Ignore PyTorch/YOLO run artifacts, but keep the final fine-tuned checkpoint
+runs/*
+!runs/detect/
+runs/detect/*
+!runs/detect/finetune_distorted/
+runs/detect/finetune_distorted/*
+!runs/detect/finetune_distorted/weights/
+runs/detect/finetune_distorted/weights/*
+!runs/detect/finetune_distorted/weights/best.pt
 __pycache__/
 *.pyc
 
