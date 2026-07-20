@@ -1,231 +1,554 @@
 # Robustness of Classical and Deep Vision Methods under Image Processing Degradations
 
-**Image Processing & Computer Vision — Course Project**
-Team:  Nitzan Sharabi · Roni Volshtein · Matan Sella
+**Image Processing & Computer Vision — Course Project**  
+Team: Nitzan Sharabi · Roni Volshtein · Matan Sela
 
-This project asks a simple question: **how much accuracy do computer-vision algorithms lose when images degrade — and what brings it back?**
+## Project question
 
-- **4 distortions** — Gaussian noise · salt & pepper · low light · motion blur, each at **4 severity levels** measured as SNR (dB)
-- **4 vision tasks** — object detection (DL) · instance segmentation (DL) · template matching · sparse optical flow
-- **2 recovery strategies** — classical enhancement matched to each distortion (median filter, CLAHE, smoothing, sharpening) vs. **fine-tuning** a deep model on distorted data
-- **1 dataset** — COCO128 / COCO128-Seg: compact, public, with Ground Truth
+Computer-vision methods are usually demonstrated on clean images, while real cameras produce noise, poor lighting and motion blur. This project examines:
 
-Every distortion × severity × task combination is evaluated twice: with task activity metrics, and — for object detection — with **GT-based mAP, per class and per SNR**.
+> How do classical and deep vision tasks behave as image quality deteriorates, and how much of the lost performance can be recovered through classical preprocessing or model adaptation?
+
+We first explore four different tasks using task-specific **activity metrics**. We then use object detection as the rigorous Ground-Truth case study, measuring box mAP per class and per SNR. This distinction is important: an algorithm can produce more outputs without producing more correct outputs.
+
+The experiment contains:
+
+- **1 public dataset:** COCO128 / COCO128-Seg
+- **4 vision tasks:** object detection, instance segmentation, template matching and sparse optical flow
+- **4 distortions:** Gaussian noise, salt-and-pepper noise, low light and motion blur
+- **4 severity levels per distortion**, quantified using SNR
+- **2 recovery approaches:** matched classical enhancement and small-scale object-detector fine-tuning
 
 ## Contents
 
-1. [Project decisions](#1-project-decisions)
-2. [Distortions, severity, and SNR](#2-distortions-severity-and-snr)
-3. [Experimental protocol](#3-experimental-protocol)
-4. [Results — task activity metrics](#4-results--task-activity-metrics-all-4-tasks)
-5. [Results — GT-based accuracy (mAP per class, per SNR)](#5-results--gt-based-accuracy-map-per-class-per-snr)
-6. [Key findings](#6-key-findings)
-7. [Limitations](#7-limitations)
-8. [Reproducing the results](#8-reproducing-the-results)
-9. [Possible extensions](#9-possible-extensions)
+1. [Experimental choices](#1-experimental-choices)
+2. [How each task is used](#2-how-each-task-is-used)
+3. [Distortions, severity and recovery methods](#3-distortions-severity-and-recovery-methods)
+4. [Chronological experimental protocol](#4-chronological-experimental-protocol)
+5. [Stage 1 — clean baseline](#5-stage-1--clean-baseline)
+6. [Stage 2 — behavior under distortion](#6-stage-2--behavior-under-distortion)
+7. [Stage 3 — recovery through enhancement](#7-stage-3--recovery-through-enhancement)
+8. [Stage 4 — Ground-Truth object-detection evaluation](#8-stage-4--ground-truth-object-detection-evaluation)
+9. [Stage 5 — object-detection fine-tuning](#9-stage-5--object-detection-fine-tuning)
+10. [Conclusions](#10-conclusions)
+11. [Study scope](#11-study-scope)
+12. [Reproducing and inspecting the results](#12-reproducing-and-inspecting-the-results)
+13. [File reference](#13-file-reference)
+14. [Final project summary](#14-final-project-summary)
 
 ---
 
+## 1. Experimental choices
 
-## 1. Project decisions
+As a team of three, we used four tasks and four distortions. This exceeds the minimum requirement of three tasks and three distortions.
 
-As a team of 3, per the course rules we use **4 distortions and 4 tasks** (instead of 3 and 3).
-
-| Component | Choice | Rationale |
+| Component | Choice | Why we selected it |
 |---|---|---|
-| Dataset | [COCO128](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco128.zip) + COCO128-Seg | Small, public, GT for detection and segmentation, feasible on CPU |
-| Distortions (4) | Gaussian noise · Salt & pepper · Low light · Motion blur | All geometry-preserving → the original GT annotations remain valid for distorted images |
-| Tasks (4) | Object detection (DL) · Instance segmentation (DL) · Template matching (classical) · Sparse optical flow (classical) | Mix of high-level and low-level tasks; includes DL models as required |
-| Models / algorithms | YOLOv8n · YOLOv8n-seg · `cv2.matchTemplate` (NCC) · Shi-Tomasi + pyramidal Lucas-Kanade | Pretrained nano models run on weak hardware; classical methods straight from the course material |
-| Enhancement per distortion | Gaussian filter · Median filter · CLAHE · Unsharp sharpening | Each classical tool matched to the degradation it targets in theory |
-| Recovery strategies (2) | (a) Enhancement preprocessing · (b) YOLO fine-tuning on distorted data | The two improvement approaches required by the project spec |
+| Dataset | [COCO128](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco128.zip) + COCO128-Seg | Small and public, includes object annotations, and is practical on limited hardware |
+| Tasks | Object detection · Instance segmentation · Template matching · Sparse optical flow | Covers high-level and low-level vision, classical algorithms and deep models |
+| DL models | YOLOv8n · YOLOv8n-seg | Pretrained nano models are computationally practical while providing realistic detection and segmentation outputs |
+| Classical methods | Normalized cross-correlation · Shi–Tomasi corners + pyramidal Lucas–Kanade | Standard, interpretable image-processing methods covered by the course |
+| Distortions | Gaussian noise · Salt and pepper · Low light · Motion blur | Common camera/image degradations that preserve the original object locations |
+| Enhancements | Gaussian smoothing · Median filtering · CLAHE · Unsharp masking | Each method was selected as a theoretically relevant response to its paired distortion |
+| Fine-tuning | YOLOv8n object detection only | Object detection was selected as the project's Ground-Truth-evaluated task; segmentation remained pretrained |
 
-## 2. Distortions, severity, and SNR
+All four distortions preserve image geometry. Therefore, the original COCO bounding boxes remain valid for clean, distorted and enhanced versions of the same image.
 
-Each distortion is applied at 4 severity levels. Severity is quantified as the mean **SNR in dB** vs. the clean image, SNR = 10·log₁₀(P_signal / P_noise), measured over the 30-image sample:
+---
 
-| Distortion | Level parameters (L1 → L4) | Mean SNR dB (L1 → L4) | Matched enhancement |
-|---|---|---|---|
-| Gaussian noise | σ = 15 / 30 / 50 / 75 | 22.1 → 16.6 → 12.6 → 9.7 | Gaussian blur |
-| Salt & pepper | density = 2% / 5% / 15% / 30% | 16.8 → 12.8 → 8.0 → 4.9 | Median filter |
-| Low light | scale 0.7→0.15 with gamma 0.8→0.3 | 12.1 → 7.6 → 4.2 → 2.0 | CLAHE |
-| Motion blur | kernel = 5 / 11 / 21 / 35 px | 18.7 → 15.8 → 13.8 → 12.5 | Sharpening (unsharp) |
+## 2. How each task is used
+
+The tasks answer different robustness questions and should not be interpreted as if they share one universal metric.
+
+| Task | Method | What we check under distortion | Recorded activity metric | GT metric in this project |
+|---|---|---|---|---|
+| Object detection | YOLOv8n | Whether known objects continue to be detected as appearance deteriorates | Number of detections and average confidence | Box mAP50 and mAP50–95, overall and per class |
+| Instance segmentation | YOLOv8n-seg | Whether the pretrained model continues to produce object instances under degradation | Number of segmented instances and average confidence | Activity analysis across clean, distorted and enhanced images |
+| Template matching | `cv2.matchTemplate` using normalized cross-correlation | **How much the match to a known template is preserved under different distortions** | Maximum NCC matching score | NCC preservation relative to the known clean template |
+| Sparse optical flow | Shi–Tomasi + pyramidal Lucas–Kanade | Whether points detected in the first frame can still be tracked in the degraded frame pair | Number of successfully tracked points | Track-count behavior across severity and enhancement |
+
+The activity metrics allow the same broad pipeline to cover all four tasks, but they do not always represent correctness. For example, noise can create additional corners, increasing the optical-flow tracked-point count even when the image is worse. This observation motivated the additional GT-based evaluation for object detection.
+
+---
+
+## 3. Distortions, severity and recovery methods
+
+Each distortion was applied at four severity levels. We quantify the actual pixel change using
+
+**SNR = 10·log₁₀(P_signal / P_noise)**.
+
+The reported SNR values are averages over the 30-image main sample.
+
+| Distortion | Level parameters, L1 → L4 | Mean SNR, L1 → L4 | Paired enhancement | Intended role of enhancement |
+|---|---|---|---|---|
+| Gaussian noise | σ = 15 / 30 / 50 / 75 | 22.1 → 16.6 → 12.6 → 9.7 dB | Gaussian smoothing | Suppress additive high-frequency noise, accepting some loss of detail |
+| Salt and pepper | density = 2% / 5% / 15% / 30% | 16.8 → 12.8 → 8.0 → 4.9 dB | Median filter | Remove isolated impulse pixels while preserving edges |
+| Low light | scale 0.7 → 0.15 with gamma 0.8 → 0.3 | 12.1 → 7.6 → 4.2 → 2.0 dB | CLAHE | Restore local contrast without applying one global amplification factor |
+| Motion blur | kernel = 5 / 11 / 21 / 35 px | 18.7 → 15.8 → 13.8 → 12.5 dB | Unsharp masking | Test whether edge amplification can recover detector activity after blur |
 
 ![Distortion severity overview](data/tasks_graphs_and_tables/plots/grid_distortions.png)
-*Figure 1 — one sample image under each distortion at all four severity levels, labeled with per-image SNR. Note that motion blur costs relatively few dB yet damages detection the most (6): SNR measures pixel-level damage, not semantic damage.*
 
-![Enhancement before/after](data/tasks_graphs_and_tables/plots/grid_enhancement.png)
-*Figure 2 — clean vs. distorted (level 3) vs. enhanced, per distortion. The median filter visibly restores the salt & pepper image; the sharpened motion-blur image remains smeared.*
+*Figure 1 — A clean sample and all four severity levels for every distortion. The labels show per-image SNR. Motion blur illustrates an important limitation of SNR: relatively modest pixel error can still destroy semantically important edges.*
 
-Per-image annotated outputs for every distortion, level, and task are saved under `data/tasks_applied_on_distorted/` and `data/tasks_applied_on_enhanced/` (regenerated locally by the pipeline — see 8).
-## 3. Experimental protocol
+---
 
-Experiments run on the first 30 images of COCO128 (compute constraints; consistent with the course guidance that small-scale evaluation is acceptable). The pipeline:
+## 4. Chronological experimental protocol
 
-1. **Baseline** — all 4 tasks on the clean images.
-2. **Distortion** — 4 distortions × 4 levels → 480 distorted images; all 4 tasks re-run on each.
-3. **Enhancement** — the matched classical enhancement applied to every distorted image → 480 enhanced images; all 4 tasks re-run.
-4. **Fine-tuning** — YOLOv8n fine-tuned briefly on distorted images, with the train/test split done **by original image** so that distorted versions of the same image never appear in both sets; re-evaluated on distorted images (object detection only).
-5. **Measurement** — two complementary layers:
-   (a) per-image task activity metrics, centralized in `metadata_summary_base.csv`;
-   (b) **GT-based mAP per class and per SNR** (`map_summary.csv`), described in 5.
+The main experiment proceeds in the following order:
 
-## 4. Results — task activity metrics (all 4 tasks)
+1. **Select 30 clean COCO128 images** and retain their original annotations.
+2. **Clean baseline:** run all four tasks on every clean image.
+3. **Distortion:** generate 4 distortions × 4 levels for every image, producing 480 distorted images, and rerun all tasks.
+4. **Enhancement:** apply the paired enhancement to every distorted image, producing 480 enhanced images, and rerun all tasks.
+5. **Activity analysis:** compare clean, distorted and enhanced task-specific outputs using the central CSV.
+6. **GT detection analysis:** validate YOLO predictions against the original COCO boxes and compute mAP per condition, class and SNR.
+7. **Fine-tuning extension:** compare pretrained and fine-tuned YOLOv8n detection on 10 additional COCO128 images outside the main 30-image sample.
+8. **Interpretation:** compare the activity story with the Ground-Truth story and document where they disagree.
 
-Mean of each task's primary metric over the 30-image sample (distorted/enhanced values averaged over all distortions and levels; full breakdowns are in `metadata_summary_base.csv` and the plots listed below):
+The central activity table is `data/tasks_graphs_and_tables/metadata_summary_base.csv`. It contains 7,950 rows:
 
-| Task | Metric | Clean | Distorted | Enhanced | Fine-tuned |
-|---|---|---|---|---|---|
-| Object detection | detected objects | 3.17 | 1.78 | 2.22 | 3.05 |
-| Instance segmentation | segmented instances | 3.30 | 1.85 | 2.29 | — |
-| Template matching | matching score (NCC) | 1.00 | 0.80 | 0.87 | — |
-| Optical flow | tracked points | 187.1 | **194.7** | 189.5 | — |
-Fine-tuning applies only to object detection: template matching and optical flow are classical algorithms with no trainable weights, and fine-tuning was scoped to the single GT-evaluated task (see section 5).
+| Model stage | Rows |
+|---|---:|
+| Baseline | 3,570 |
+| Enhanced | 3,360 |
+| Fine-Tuned detection activity | 1,020 |
 
-Fine-tuning recovery for object detection, per distortion (mean detected objects):
+GT-based results are stored separately because mAP is aggregated by condition and class:
 
-| Distortion | Distorted | Enhanced | Fine-tuned |
-|---|---|---|---|
-| Gaussian noise | 1.78 | 2.03 | 2.81 |
-| Salt & pepper | 1.69 | 2.84 | 2.51 |
-| Low light | 2.47 | 2.95 | **4.58** |
-| Motion blur | 1.17 | 1.07 | 2.32 |
+- `map_summary.csv`: pretrained clean/distorted/enhanced detection results
+- `map_summary_finetuned.csv`: pretrained versus fine-tuned detection on the additional 10-image sample
 
-Note also: on *clean* images the fine-tuned model detects 5.57 objects on average vs. 3.17 for the pretrained model — a 75% inflation in detection count that previews finding 4 below.
+---
 
-Two values are bolded because they are *warnings*, not wins — see finding 3 in 6: optical flow tracking **more** points on distorted images, and the fine-tuned model detecting **more** objects on low-light images than the baseline detects on clean ones, are both artifacts of metrics that never consult the Ground Truth.
+## 5. Stage 1 — clean baseline
 
-Plots: `{task}_vs_level.png`, `{task}_vs_snr.png` (degradation), `{task}_enhancement_recovery_*.png`, `finetune_recovery_*.png` (recovery) — all in `data/tasks_graphs_and_tables/plots/`.
+The clean baseline establishes what each method produces before image quality is changed.
 
-## 5. Results — GT-based accuracy (mAP per class, per SNR)
+| Task | Primary activity metric | Clean mean |
+|---|---|---:|
+| Object detection | Detected objects | 3.17 |
+| Instance segmentation | Segmented instances | 3.30 |
+| Template matching | NCC matching score | 1.00 |
+| Sparse optical flow | Tracked points | 187.1 |
 
-Activity metrics show trends but cannot verify correctness. We therefore additionally evaluate object detection **against Ground Truth**: since all four distortions are geometry-preserving, the original COCO labels remain a valid answer key for every distorted and enhanced image. Script: `src/evaluate_map_gt.py`; results: `data/tasks_graphs_and_tables/map_summary.csv` (1,419 rows — overall + per-class, for 33 conditions: clean, 16 distorted, 16 enhanced).
-Per the project definition, GT-based accuracy evaluation is required for one task; we selected object detection as the GT-evaluated task, with the activity metrics of 4 covering all four tasks.
+For object detection, which is evaluated against GT, the pretrained model obtained:
 
-**Clean baseline on the 30-image sample: mAP50-95 = 0.581.** (On the full 128-image set the pretrained model scores 0.376 — the 30-image sample is an easier draw. All comparisons below use the same 30 images, so they are apples-to-apples.)
+- **mAP50–95 = 0.581** on the 30-image main sample
+- **mAP50–95 = 0.376** on the complete 128-image clean dataset
 
-| Distortion | Distorted mAP50-95 (L1→L4) | Enhanced mAP50-95 (L1→L4) | Verdict |
-|---|---|---|---|
-| Salt & pepper | 0.40 → 0.28 → 0.10 → 0.04 | 0.51 → 0.50 → 0.49 → 0.37 | Median filter: near-full recovery even at severe levels |
-| Low light | 0.58 → 0.56 → 0.49 → 0.33 | 0.58 → 0.55 → 0.54 → 0.43 | CLAHE matters exactly where the damage is (severe levels) |
-| Gaussian noise | 0.46 → 0.31 → 0.16 → 0.06 | 0.49 → 0.38 → 0.26 → 0.14 | Moderate, consistent recovery |
-| Motion blur | 0.41 → 0.21 → 0.11 → 0.06 | 0.31 → 0.14 → 0.09 → 0.07 | **Sharpening hurts — negative result (6.2)** |
-
-Plots (`data/tasks_graphs_and_tables/plots/`): `map_curve_gaussian_noise.png`, `map_curve_salt_pepper.png`, `map_curve_low_light.png`, `map_curve_motion_blur.png` — mAP vs. SNR with the clean baseline as reference; `map_per_class_clean.png`, `map_per_class_drop.png` — per-class analysis.
-
-![mAP vs SNR — salt & pepper](data/tasks_graphs_and_tables/plots/map_curve_salt_pepper.png)
-![mAP vs SNR — motion blur](data/tasks_graphs_and_tables/plots/map_curve_motion_blur.png)
-*Figure 3 — the two extremes: near-full recovery by the median filter (top) vs. sharpening that performs worse than no processing (bottom). Gaussian-noise and low-light curves are linked above.*
-
-### Per-class sensitivity
-
-Large, high-contrast classes (train, zebra, airplane) retain accuracy under distortion, while small or low-contrast classes (teddy bear, handbag, banana) collapse first. Two honest caveats: per-class values for rare classes (≤2 images in the sample) are indicative only, and isolated inversions (e.g. *bottle* scoring higher distorted than clean) reflect per-class sample size rather than genuine robustness gains.
+The 30-image sample is therefore an easier draw than the full dataset. All clean/distorted/enhanced comparisons in the main GT experiment use the same 30 images, keeping those comparisons internally consistent.
 
 ![Per-class mAP on clean images](data/tasks_graphs_and_tables/plots/map_per_class_clean.png)
 
-## 6. Key findings
+*Figure 2 — Clean detection mAP50–95 per class. Large or visually distinctive objects often begin with high accuracy, while results for rare classes in a 30-image sample are statistically unstable.*
 
-1. **Recovery is distortion-dependent and matches theory.** The median filter vs. impulse noise is the textbook pairing and delivers near-full recovery (0.10 → 0.49 at level 3); CLAHE recovers low light mainly at severe levels; Gaussian smoothing trades noise for detail and recovers moderately.
-2. **Negative result — sharpening under motion blur.** Unsharp masking makes detection *worse* than no processing at mild-to-moderate blur (mAP 0.41 → 0.31 at level 1). Motion blur smears information along a direction; sharpening cannot un-smear it and instead amplifies the smeared edges, feeding the detector confident wrong gradients. Genuine recovery would require deconvolution-style deblurring.
-3. **Metrics that ignore GT overestimate (or invert) reality.** Three concrete cases from our own data: (a) enhanced salt-&-pepper images produce *more* detections than clean images, yet their GT mAP stays below the clean baseline; (b) optical flow tracks *more* points on distorted images (194.7 vs. 187.1) because noise manufactures fake corners for Shi-Tomasi; (c) the fine-tuned model "detects" 4.58 objects on low-light images vs. 3.17 clean. Detection counts measure activity, mAP measures correctness — a robustness study needs the latter.
-![Annotated detections: clean vs distorted vs enhanced](data/tasks_graphs_and_tables/plots/grid_annotated.png)
-*Figure 4 — YOLO detections at level 3. Salt & pepper: detections vanish and return after median filtering. Motion blur: sharpening fails to restore them. Gaussian noise: enhancement restores detection activity, but some returned boxes are low-confidence misclassifications ("dining table", "cake") — activity without correctness.*
-4. **Fine-tuning vs. enhancement — the GT verdict.** Evaluated on 10 COCO128 images outside the pipeline's 30 (unseen by the fine-tuned model by construction; `map_summary_finetuned.csv`), fine-tuning yields modest real gains on noise distortions (mAP50-95 +0.03-0.06 on salt & pepper and Gaussian noise), **no measurable gain on low light or motion blur**, and a slight cost on clean images (0.396 → 0.378 — mild catastrophic forgetting from the short adaptation). This contradicts the counting-based picture (e.g. "+99% recovery on motion blur"), which finding 3 explains: the fine-tuned model simply fires far more boxes (5.57 vs. 3.17 detections on clean images). Conclusion: at this training scale, a matched classical enhancement (e.g. median filtering for impulse noise) recovers far more accuracy than fine-tuning, at zero training cost; fine-tuning's counting-metric advantage was largely over-detection.
+---
 
-## 7. Limitations
+## 6. Stage 2 — behavior under distortion
 
-- 30-image sample (compute limits): per-class numbers are noisy for rare classes.
-- Fine-tuning is a short, small-scale adaptation experiment (few epochs, nano model, detection only) — not a state-of-the-art claim.
-- GT-based mAP currently covers object detection; extending it to segmentation mask-mAP is a natural next step.
-- Motion blur lacks a genuine deblurring baseline (see 9).
+### 6.1 Object detection and instance segmentation
 
-## 8. Reproducing the results
+![Object-detection activity versus distortion level](data/tasks_graphs_and_tables/plots/object_detection_vs_level.png)
+
+*Figure 3 — Mean number of detected objects versus severity. Motion blur causes the quickest activity collapse; Gaussian and impulse noise decline steadily; low light retains more detections until the severe levels.*
+
+Object-detection activity falls from 3.17 objects on clean images to an average of 1.78 across distorted conditions. Motion blur is especially damaging even though its SNR remains relatively high. This shows that pixel-level SNR alone does not determine task-level damage: directional blur removes edges and texture cues used by the detector.
+
+![Instance-segmentation activity versus distortion level](data/tasks_graphs_and_tables/plots/segment_instances_vs_level.png)
+
+*Figure 4 — The pretrained segmentation model follows a similar degradation pattern. Motion blur produces the steepest drop in segmented instances, while low light is comparatively tolerable until higher severity.*
+
+Instance segmentation falls from 3.30 segmented instances on clean images to 1.85 on average under distortion. These counts demonstrate reduced model activity, but without mask GT they do not establish whether the remaining masks are accurate.
+
+### 6.2 Template matching
+
+![Template-matching score versus distortion level](data/tasks_graphs_and_tables/plots/template_matching_vs_level.png)
+
+*Figure 5 — Preservation of the match to the known clean template. Low light retains a high normalized correlation, whereas salt-and-pepper and Gaussian noise progressively destroy the local intensity pattern.*
+
+The template is cropped from the clean image and used as the known reference. The experiment asks how much that known match survives when the target image is distorted. The clean match is 1.00 by construction. At level 4:
+
+- Low light remains near 0.94 because normalized correlation is relatively tolerant of broad intensity changes.
+- Motion blur remains around 0.70: the structure is weakened but still recognizable.
+- Gaussian noise drops to roughly 0.55.
+- Salt-and-pepper noise falls to roughly 0.42, the strongest disruption of the template's pixel structure.
+
+This result differs from object detection: low light is damaging to learned semantic inference at severe levels, yet normalized template correlation remains high because it compensates for overall intensity scaling.
+
+### 6.3 Sparse optical flow and the metric problem
+
+![Optical-flow tracked points versus distortion level](data/tasks_graphs_and_tables/plots/optical_flow_vs_level.png)
+
+*Figure 6 — Tracked-point count often rises above the clean baseline. This is not an accuracy improvement: noise and distorted edges can create additional Shi–Tomasi corner candidates.*
+
+The mean tracked-point count is 187.1 on clean images but 194.7 across distorted conditions. Taken literally, that would imply that degradation improves optical flow. Visual reasoning gives the opposite explanation: noise manufactures high-frequency corner-like structures, and the count metric never checks whether those tracks correspond to correct physical motion.
+
+This is the clearest example of why the project separates **activity metrics** from **correctness metrics**.
+
+---
+
+## 7. Stage 3 — recovery through enhancement
+
+Every distorted image is processed with the enhancement paired to its distortion, and all four tasks are rerun.
+
+![Enhancement before and after](data/tasks_graphs_and_tables/plots/grid_enhancement.png)
+
+*Figure 7 — Clean, distorted and enhanced examples at level 3. Median filtering visibly removes impulse pixels; CLAHE recovers local contrast; smoothing reduces Gaussian noise but also detail; sharpening cannot undo directional motion smear.*
+
+Mean task activity across all distortions and levels:
+
+| Task | Clean | Distorted | Enhanced | Interpretation |
+|---|---:|---:|---:|---|
+| Object detection — detected objects | 3.17 | 1.78 | 2.22 | Enhancement restores part of the lost detector activity |
+| Instance segmentation — segmented instances | 3.30 | 1.85 | 2.29 | Similar partial recovery for the pretrained segmentation model |
+| Template matching — NCC | 1.00 | 0.80 | 0.87 | Paired preprocessing improves average template similarity |
+| Optical flow — tracked points | 187.1 | 194.7 | 189.5 | The value moves toward baseline, but count is not an accuracy measure |
+
+The object-detection recovery depends strongly on the distortion:
+
+| Distortion | Distorted detections | Enhanced detections | Main observation |
+|---|---:|---:|---|
+| Gaussian noise | 1.78 | 2.03 | Moderate recovery after smoothing |
+| Salt and pepper | 1.69 | 2.84 | Strong recovery after median filtering |
+| Low light | 2.47 | 2.95 | CLAHE helps, especially at severe levels |
+| Motion blur | 1.17 | 1.07 | Sharpening does not restore the lost information |
+
+![Object-detection enhancement recovery](data/tasks_graphs_and_tables/plots/object_detection_enhancement_recovery_lines.png)
+
+*Figure 8 — Detection activity before and after enhancement by distortion and severity. In this and the following recovery plots, “Baseline” means the distorted image before enhancement, not the clean-image baseline. The improvement is method-dependent rather than universal.*
+
+### 7.1 Object-detection recovery
+
+The detector shows three different types of enhancement behavior:
+
+- **Strong recovery under salt-and-pepper noise:** median filtering produces a large and persistent separation from the distorted curve. At levels 3 and 4, detection activity remains near 2.8 and 2.7 objects after enhancement, while the unprocessed distorted images fall to roughly 1.4 and 0.7.
+- **Moderate recovery under Gaussian noise:** smoothing helps at every severity, but the enhanced curve still declines as variance increases. Suppressing noise also removes some detail, so the method cannot return the detector to its clean baseline.
+- **Severity-dependent recovery under low light:** CLAHE helps most clearly from level 2 onward, where local contrast restoration preserves more detectable objects.
+- **No recovery under motion blur:** sharpening is slightly worse at mild and moderate levels and only approximately equal at level 3. Edge amplification cannot reconstruct the directionally smeared information.
+
+These counts describe detector activity. The GT evaluation in Stage 4 verifies which recovered boxes are correct.
+
+### 7.2 Instance-segmentation recovery
+
+![Instance-segmentation enhancement recovery](data/tasks_graphs_and_tables/plots/segment_instances_enhancement_recovery_lines.png)
+
+*Figure 9 — Number of segmented instances before and after paired enhancement. “Baseline” denotes the distorted, unenhanced condition. The median filter produces the largest recovery; sharpening provides almost none.*
+
+The pretrained segmentation model follows patterns similar to object detection, which is reasonable because both YOLO tasks depend on semantic features and identifiable object boundaries:
+
+- **Gaussian noise:** Gaussian smoothing provides a small, consistent increase in segmented-instance count. The curves remain close because smoothing removes both noise and some boundary detail.
+- **Salt-and-pepper noise:** median filtering produces the strongest segmentation recovery. The enhanced model retains roughly 2.6–3.3 segmented instances across all levels, while the distorted curve falls from about 2.3 to 0.8.
+- **Low light:** CLAHE has limited effect at mild levels but becomes useful at severe darkness. At level 4, the enhanced images produce about 2.6 instances compared with about 1.8 before enhancement.
+- **Motion blur:** sharpening does not restore segmentation activity and is slightly worse at the first two levels. The two curves converge only after both have already collapsed.
+
+This agreement between detection and segmentation supports a common qualitative conclusion: impulse-noise removal and severe-low-light contrast restoration help the pretrained deep models, while unsharp masking is not a solution to motion blur. Segmented-instance count is interpreted as an activity metric, while box mAP provides the project's detailed GT correctness analysis.
+
+### 7.3 Template-matching recovery
+
+![Template-matching enhancement recovery](data/tasks_graphs_and_tables/plots/template_matching_enhancement_recovery_lines.png)
+
+*Figure 10 — NCC similarity to the known clean template before and after enhancement. Gaussian and median filtering preserve the match strongly; CLAHE and sharpening reduce the score relative to leaving their distorted inputs unprocessed.*
+
+Template matching reveals that an enhancement can help one vision task while hurting another:
+
+- **Gaussian noise:** without preprocessing, NCC falls from approximately 0.93 to 0.55. Gaussian smoothing keeps the score between roughly 0.94 and 0.86. The filter suppresses random pixel deviations, so the local pattern again resembles the clean reference.
+- **Salt-and-pepper noise:** median filtering almost completely stabilizes the match, keeping NCC near 0.90 across all four levels instead of falling to roughly 0.42. This is one of the clearest demonstrations of a correctly matched enhancement method in the project.
+- **Low light:** the distorted images already retain very high NCC because normalized correlation tolerates broad intensity scaling. CLAHE slightly lowers the score at every level by changing the local intensity distribution relative to the original clean template.
+- **Motion blur:** sharpening remains below the unprocessed blurred-image curve. It increases local contrast but does not reproduce the original spatial pattern that NCC is trying to match.
+
+This result adds an important qualification to “enhancement recovery.” An image is not enhanced in an absolute task-independent sense. It is transformed in a way that may restore information useful to one method while changing information used by another. Median filtering is beneficial to both deep inference and template similarity under impulse noise; CLAHE can help deep object inference in severe darkness while slightly reducing similarity to a fixed clean template.
+
+### 7.4 Sparse-optical-flow recovery
+
+![Optical-flow enhancement recovery](data/tasks_graphs_and_tables/plots/optical_flow_enhancement_recovery_lines.png)
+
+*Figure 11 — Tracked-point count before and after enhancement. These curves must not be read as accuracy curves: neither line checks the estimated tracks against known physical displacement.*
+
+The optical-flow recovery plot reinforces the metric limitation discovered in the degradation stage:
+
+- **Gaussian noise:** smoothing slightly reduces the number of tracks at mild levels, while both curves approach the algorithm's effective point limit at stronger levels. A high count may include noise-induced features.
+- **Salt-and-pepper noise:** the distorted images remain close to 198 tracked points, while median filtering lowers the count to roughly 170–184. This apparent “loss” can actually mean that the filter removed impulse pixels that were incorrectly accepted as corners.
+- **Low light:** CLAHE raises the tracked-point count at mild levels but lowers it at severe levels. Without a known motion field, neither direction can be classified as a correctness improvement.
+- **Motion blur:** distorted and sharpened images both produce high tracked-point counts, despite motion blur being highly destructive to object detection. Count saturation hides whether individual tracks correspond to real image motion.
+
+For optical flow, enhancement should ultimately be evaluated using synthetic translation or another known transformation. That would make it possible to compute endpoint error, track survival on the same physical points, and the fraction of geometrically correct tracks. The current experiment instead demonstrates how an apparently intuitive activity metric can invert the perceived robustness result.
+
+### 7.5 Cross-task enhancement conclusions
+
+Looking across the four recovery figures produces conclusions that are not visible from the overall averages alone:
+
+1. **Salt-and-pepper plus median filtering is the most consistently successful pair.** It restores detection and segmentation activity, preserves template NCC, and removes many noise-created optical-flow features.
+2. **Gaussian smoothing provides partial recovery.** It improves deep-task activity and template similarity, but its unavoidable detail loss prevents complete recovery.
+3. **CLAHE is task-dependent.** It helps object detection and segmentation mainly at severe darkness, yet slightly reduces NCC because template matching was defined relative to the original clean intensity pattern.
+4. **Unsharp masking does not solve motion blur.** It fails for detection and segmentation, decreases template similarity, and produces ambiguous optical-flow counts.
+5. **The meaning of recovery depends on the metric.** A higher detection count, segmentation count or tracked-point count is not automatically a more correct result. Only the GT stage can establish detection correctness.
+
+Detection counts are useful for showing behavior, but a returned box can be incorrect. The next stage checks recovery against the actual COCO annotations.
+
+---
+
+## 8. Stage 4 — Ground-Truth object-detection evaluation
+
+Object detection is the selected rigorous GT case study. Because all distortions preserve geometry, each prediction can be compared with the original COCO bounding boxes using YOLO validation metrics.
+
+`src/evaluate_map_gt.py` evaluates 33 conditions:
+
+- 1 clean condition
+- 16 distorted conditions: 4 distortions × 4 levels
+- 16 enhanced conditions: 4 distortions × 4 levels
+
+Results are saved overall and per class in `map_summary.csv`.
+
+| Distortion | Distorted mAP50–95, L1 → L4 | Enhanced mAP50–95, L1 → L4 | Conclusion |
+|---|---|---|---|
+| Salt and pepper | 0.40 → 0.28 → 0.10 → 0.04 | 0.51 → 0.50 → 0.49 → 0.37 | Median filtering provides the strongest recovery |
+| Low light | 0.58 → 0.56 → 0.49 → 0.33 | 0.58 → 0.55 → 0.54 → 0.43 | CLAHE matters mainly at severe darkness |
+| Gaussian noise | 0.46 → 0.31 → 0.16 → 0.06 | 0.49 → 0.38 → 0.26 → 0.14 | Smoothing provides moderate, consistent recovery |
+| Motion blur | 0.41 → 0.21 → 0.11 → 0.06 | 0.31 → 0.14 → 0.09 → 0.07 | Sharpening usually hurts rather than helps |
+
+![mAP versus SNR — salt and pepper](data/tasks_graphs_and_tables/plots/map_curve_salt_pepper.png)
+
+*Figure 12 — Median filtering substantially restores detection correctness under impulse noise, not merely the number of predictions.*
+
+![mAP versus SNR — motion blur](data/tasks_graphs_and_tables/plots/map_curve_motion_blur.png)
+
+*Figure 13 — Unsharp masking performs below the unprocessed blurred image at mild and moderate levels. Sharpening amplifies smeared gradients but cannot reconstruct information lost along the blur direction.*
+
+![Annotated clean, distorted and enhanced detections](data/tasks_graphs_and_tables/plots/grid_annotated.png)
+
+*Figure 14 — Qualitative detection results at level 3. Salt-and-pepper detections disappear and return after median filtering. Motion-blur detections remain largely absent. Gaussian smoothing returns some boxes, including incorrect low-confidence classes—illustrating why count alone is insufficient.*
+
+### Per-class behavior
+
+Large, high-contrast classes such as train, zebra and airplane often retain more accuracy under distortion. Small or low-contrast classes such as teddy bear, handbag and banana collapse earlier. These observations must be interpreted cautiously because some classes appear in only one or two images in the selected sample.
+
+![Per-class clean versus distorted drop](data/tasks_graphs_and_tables/plots/map_per_class_drop.png)
+
+*Figure 15 — Per-class mAP50–95 on clean images and level-2 distorted conditions. Rare-class inversions can reflect small sample size rather than genuine robustness.*
+
+---
+
+## 9. Stage 5 — object-detection fine-tuning
+
+Fine-tuning was scoped to **YOLOv8n object detection only**. The YOLOv8n-seg model remained pretrained and was evaluated only in the clean, distorted and enhanced activity experiments.
+
+### 9.1 Preserved training artifacts
+
+The repository includes the following compact artifacts from the original training run:
+
+| Artifact | Purpose |
+|---|---|
+| `runs/detect/finetune_distorted/weights/best.pt` | The fine-tuned YOLOv8n detection checkpoint selected by the trainer using validation performance |
+| `models/finetuned_detection/args.yaml` | The original Ultralytics training configuration, including model, epochs, batch size, image size, seed and augmentation parameters |
+| `data/training_results/detection/results.csv` | Per-epoch training losses, validation losses, precision, recall, mAP50 and mAP50–95 |
+| `data/training_results/detection/results.png` | Ultralytics visualization of the training and validation history |
+
+The configuration confirms that the model was initialized from pretrained `yolov8n.pt` weights and trained for 10 epochs using 640-pixel images, batch size 8 and deterministic seed 0. The stored checkpoint is approximately 6.5 MB, and Ultralytics provides the standard pretrained initialization used by the training script.
+
+![YOLO fine-tuning history](data/training_results/detection/results.png)
+
+*Figure 16 — Training and validation history for the 10-epoch object-detection adaptation. Training losses decrease continuously, while validation losses increase and validation mAP falls after the first epoch. This is evidence of rapid overfitting on the small adaptation dataset and explains why `best.pt`, rather than the final-epoch checkpoint, is the relevant saved model.*
+
+### 9.2 Training behavior
+
+The training curves provide a more complete interpretation than the final checkpoint alone:
+
+- Training box loss decreases from 1.64 to 1.00, classification loss from 2.75 to 0.87, and distribution focal loss from 1.65 to 1.15.
+- Validation losses move in the opposite direction: box loss rises from 1.57 to 1.77 and classification loss from 2.29 to 3.09.
+- Validation mAP50–95 is highest at epoch 1 (`0.320`) and falls to `0.183` by epoch 10.
+- Recall also declines from approximately `0.357` to `0.245`, while precision fluctuates rather than improving consistently.
+
+The network therefore learned the fine-tuning images increasingly well without generalizing better to its validation set. This behavior is consistent with a very small adaptation experiment and is one reason the fine-tuned results are treated as a limited extension rather than the main project conclusion.
+
+### 9.3 Fine-tuned evaluation
+
+Two fine-tuning evaluations appear in the project:
+
+1. `evaluate_finetuned.py` records detection count and confidence on the main experimental conditions.
+2. `evaluate_map_finetuned.py` compares pretrained and fine-tuned detection against GT on 10 additional COCO128 images outside the main 30-image sample.
+
+The activity evaluation initially suggested dramatic recovery. For example, the fine-tuned model generated 5.57 detections on clean images versus 3.17 for the pretrained model. This is a warning rather than a clear success: producing 75% more boxes may represent over-detection.
+
+The GT evaluation gives the more reliable interpretation:
+
+- Gaussian and salt-and-pepper noise show real but modest gains, commonly about +0.03 to +0.06 mAP50–95.
+- Low light shows no consistent improvement.
+- Motion blur shows no consistent improvement, aside from one severe-level increase on the small sample.
+- Clean mAP50–95 changes from 0.396 to 0.378, indicating a small clean-performance cost.
+
+The evidence shows strong enhancement recovery in the 30-image main experiment and modest fine-tuning gains in the additional 10-image evaluation. The repository preserves the selected checkpoint, original training arguments, epoch-by-epoch training history, GT evaluation table and reporting plots.
+
+---
+
+## 10. Conclusions
+
+### 10.1 Distortion severity affects tasks differently
+
+All tasks change as severity increases, but SNR alone does not predict semantic damage. Motion blur retains a comparatively high SNR while rapidly destroying detection and segmentation activity because it removes directional edge information.
+
+### 10.2 The correct enhancement depends on the distortion
+
+Median filtering is the strongest pairing in the experiment because impulse noise consists of isolated extreme pixels. CLAHE helps when darkness becomes severe. Gaussian smoothing provides partial recovery but trades noise reduction for detail loss.
+
+### 10.3 Sharpening is not deblurring
+
+Unsharp masking cannot reverse motion convolution. At mild blur, enhanced detection mAP falls from 0.41 to 0.31. This negative result identifies a better future direction: Wiener or Richardson–Lucy deconvolution using the known synthetic blur kernel.
+
+### 10.4 Activity and correctness can disagree
+
+Three results demonstrate the problem:
+
+1. Optical flow tracks more points under distortion because noise creates false corners.
+2. Enhanced images can generate more detection boxes without returning fully to clean-image mAP.
+3. Fine-tuning dramatically increases detection count while producing only modest GT-based gains.
+
+The main methodological conclusion is therefore:
+
+> Robustness should be judged using Ground Truth whenever possible. Activity metrics are useful for exploration, but they cannot establish correctness by themselves.
+
+### 10.5 Object detection is the central rigorous case study
+
+All four tasks were run across the pipeline. Object detection was selected for the detailed accuracy study because COCO boxes allow consistent clean/distorted/enhanced comparison per class and per SNR. The other tasks provide supporting behavioral evidence rather than equivalent GT accuracy experiments.
+
+---
+
+## 11. Study scope
+
+- The main clean/distorted/enhanced experiment uses a consistent 30-image COCO128 sample, enabling controlled comparisons across all 33 detection conditions.
+- Object detection is the selected GT case study, with box mAP measured overall, per class and per SNR.
+- Instance segmentation, template matching and sparse optical flow provide complementary task-activity analyses across the same degradation and enhancement pipeline.
+- Fine-tuning focuses on YOLOv8n object detection and is evaluated on 10 additional COCO128 images.
+- The 10-epoch adaptation exposes rapid overfitting: training losses decrease while validation losses increase and validation mAP peaks at epoch 1.
+- Motion-blur recovery uses unsharp masking as a deliberately simple classical baseline, producing an informative negative result.
+
+---
+
+## 12. Reproducing and inspecting the results
+
+### Inspecting the committed results
+
+The main report artifacts can be inspected without rerunning the expensive pipeline:
+
+```text
+data/tasks_graphs_and_tables/
+├── metadata_summary_base.csv
+├── map_summary.csv
+├── map_summary_finetuned.csv
+└── plots/
+```
 
 ### Environment setup
 
-```bash
-# Windows
+```powershell
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
-
-# Download YOLO weights + coco128 and sanity-check the base models
 python main.py
 ```
 
-**Dataset path:** the scripts look for `coco128/images/train2017` in this order: a hardcoded Windows path, a hardcoded Linux path, then `datasets/coco128/images/train2017` relative to the project root. If none exist on your machine, download [coco128](https://github.com/ultralytics/yolov5/releases/download/v1.0/coco128.zip) and place it under `datasets/` in the project root. Note: ultralytics may download the dataset to a `datasets/` folder in the *parent* directory; if the classical experiments then fail with "Image not found", copy it into the project root (`Copy-Item -Recurse <parent>\datasets .\datasets`).
+Download COCO128 and place it under:
 
-### Pipeline — run in this order
+```text
+datasets/coco128/images/train2017
+datasets/coco128/labels/train2017
+```
 
-Each stage reads from and appends to one shared file, **`data/tasks_graphs_and_tables/metadata_summary_base.csv`**. Every task result is one row; the `model_type` column (`Baseline` / `Fine-Tuned` / `Enhanced`) marks which stage produced it.
+### Main reproducible stages
 
-```bash
-# Stage 1 — baseline & distortions (30 images × 4 distortions × 4 levels × 4 tasks)
+Run commands from the project root:
+
+```powershell
+# 1. Clean baseline and distorted-image experiments
 python src/run_30_pic_dataset.py
-python validate_pipeline.py          # optional: validates CSV structure and folders
-python src/generate_plots.py         # per-task degradation charts
 
-# Stage 2, track A — YOLO fine-tuning
-python src/prepare_yolo_dataset.py
-python src/train_yolo.py
-python src/evaluate_finetuned.py
-python src/plot_finetune_results.py
+# 2. Validate the generated structure
+$env:PYTHONUTF8 = "1"
+python validate_pipeline.py
 
-# Stage 2, track B — classical enhancement
+# 3. Activity degradation plots
+python src/generate_plots.py
+
+# 4. Generate enhanced images and rerun all tasks
 python src/apply_enhancements.py
 python src/evaluate_enhancements.py
 python src/plot_enhancement_results.py
 
-# Stage 3 — GT-based mAP evaluation and plots (this report 5)
+# 5. GT-based detection evaluation and plots
 python src/evaluate_map_gt.py
 python src/plot_map_results.py
+
+# 6. Build the qualitative figure grids
+python src/make_before_after_grids.py
 ```
 
-The distortion→enhancement mapping is defined once, in `src/enhancements.py` (`ENHANCEMENT_FOR_DISTORTION`).
+### Fine-tuned model and training artifacts
 
-### Data & output layout
+The trained checkpoint is stored at the path used by both fine-tuned evaluation scripts:
 
-```
-data/
-├── distorted_images/               (480 distorted images: 30 × 4 distortions × 4 levels)
-├── enhanced_images/                (same 480 after the matched enhancement)
-├── tasks_applied_on_distorted/     (annotated task outputs, {task}/{distortion}_l{level}/)
-├── tasks_applied_on_enhanced/      (same layout, on enhanced images)
-└── tasks_graphs_and_tables/
-    ├── metadata_summary_base.csv   (central activity-metrics table)
-    ├── map_summary.csv             (GT-based mAP: condition/class/SNR — 5)
-    └── plots/                      (all comparison charts)
+```text
+runs/detect/finetune_distorted/weights/best.pt
 ```
 
-Image folders are gitignored (regenerate by running the pipeline); both CSVs and all plots are committed.
+The complete compact training record is organized as:
 
-### File reference
-File names follow their pipeline role: `run_*` = experiment runners, `evaluate_*` = metric computation, `plot_*` / `generate_plots` = chart generation, `apply_*` / `prepare_*` = data preparation, and `make_*` = figure assembly.
+```text
+runs/detect/finetune_distorted/weights/best.pt
+models/finetuned_detection/args.yaml
+data/training_results/detection/results.csv
+data/training_results/detection/results.png
+data/training_results/detection/confusion_matrix.png
+data/training_results/detection/confusion_matrix_normalized.png
+```
 
-| File | Purpose |
-|---|---|
-| `src/distortions.py` | The 4 distortion functions + SNR calculation |
-| `src/enhancements.py` | Enhancement functions + distortion→enhancement map |
-| `src/classical_tasks.py` / `src/yolo_tasks.py` | Task implementations |
-| `src/run_classical_experiments.py` / `src/run_dl_experiments.py` | Pure per-task evaluation functions |
-| `src/run_30_pic_dataset.py` | Stage 1 main runner |
-| `src/prepare_yolo_dataset.py`, `src/train_yolo.py`, `src/evaluate_finetuned.py` | Fine-tuning track |
-| `src/apply_enhancements.py`, `src/evaluate_enhancements.py` | Enhancement track |
-| `src/evaluate_map_gt.py` | **GT-based mAP per class / per SNR (5)** |
-| `src/evaluate_map_finetuned.py` | GT-based mAP: fine-tuned vs. pretrained, on 10 unseen images (section 6.4) |
-| `src/make_before_after_grids.py` | Builds the before/after figure grids (Figures 1, 2, 4) |
-| `src/generate_plots.py`, `src/plot_finetune_results.py`, `src/plot_enhancement_results.py`, `src/plot_map_results.py` | All charts |
-| `validate_pipeline.py` | Output validation |
-| `appendices/` | Legacy scripts and pre-repair CSV backup, kept for reference |
-| `appendices/working_guides/` | Internal setup and workflow documents from development |
+Run the two evaluation views with:
 
-### Troubleshooting
+```powershell
+# Per-image detection activity
+python src/evaluate_finetuned.py
 
-- **"Dataset directory not found"** — see the dataset path note above.
-- **`ModuleNotFoundError` for local imports** — run scripts from the project root (`python src/script.py`), not from inside `src/`.
-- **YOLO models not downloading** — check connectivity; `python main.py` downloads `yolov8n.pt` / `yolov8n-seg.pt` on first run.
-- **Enhanced image not found** — run `apply_enhancements.py` before `evaluate_enhancements.py`.
+# GT-based pretrained versus fine-tuned comparison
+python src/evaluate_map_finetuned.py
+```
 
-## 9. Possible extensions
+---
 
-The project's scope is complete as defined; the findings above suggest two directions for anyone wishing to extend it. First, the negative result on motion blur (6.2) indicates that recovery for this distortion lies beyond edge amplification — an extension could examine genuine deblurring methods (e.g., Wiener or Richardson-Lucy deconvolution, particularly convenient here since the blur kernel is known by construction) and test whether they achieve what sharpening could not. Second, running the evaluation on the full 128-image set rather than the 30-image sample would tighten the per-class statistics presented in 5.
+## 13. File reference
+
+| File | Purpose | Pipeline status |
+|---|---|---|
+| `src/distortions.py` | Distortion functions and SNR calculation | Main pipeline |
+| `src/enhancements.py` | Enhancement methods and central distortion-to-enhancement mapping | Main pipeline |
+| `src/run_classical_experiments.py` | Template-matching and optical-flow evaluation functions | Main pipeline dependency |
+| `src/run_dl_experiments.py` | Detection and segmentation evaluation functions | Main pipeline dependency |
+| `src/yolo_tasks.py` | Loads pretrained YOLO detection and segmentation models | Main pipeline dependency |
+| `src/run_30_pic_dataset.py` | Runs clean and distorted experiments for all four tasks | Main Stage 1 runner |
+| `validate_pipeline.py` | Validates generated CSVs and image directories | Validation utility |
+| `src/generate_plots.py` | Creates activity-versus-level and activity-versus-SNR plots | Main reporting stage |
+| `src/apply_enhancements.py` | Generates enhanced images | Main enhancement stage |
+| `src/evaluate_enhancements.py` | Reruns all tasks on enhanced images | Main enhancement stage |
+| `src/plot_enhancement_results.py` | Creates enhancement recovery figures | Main reporting stage |
+| `src/evaluate_map_gt.py` | Computes pretrained detection mAP overall/per class/per SNR | Main GT stage |
+| `src/plot_map_results.py` | Creates detection mAP and per-class plots | Main reporting stage |
+| `src/train_yolo.py` | Fine-tunes YOLOv8n detection if a prepared dataset is available | Fine-tuning extension |
+| `src/evaluate_finetuned.py` | Measures fine-tuned detection activity | Fine-tuning extension |
+| `src/evaluate_map_finetuned.py` | Compares pretrained and fine-tuned detection against GT | Fine-tuning extension |
+| `runs/detect/finetune_distorted/weights/best.pt` | Preserved best fine-tuned object-detection checkpoint | Fine-tuning artifact |
+| `models/finetuned_detection/args.yaml` | Original Ultralytics training configuration | Fine-tuning artifact |
+| `data/training_results/detection/results.csv` | Per-epoch training and validation metrics | Fine-tuning artifact |
+| `data/training_results/detection/results.png` | Training/validation curve summary | Fine-tuning artifact |
+| `src/make_before_after_grids.py` | Creates qualitative README figures | Reporting utility |
+| `src/classical_tasks.py` | Additional reusable classical-task implementation | Supporting module |
+
+---
+
+## 14. Final project summary
+
+The completed project covers four vision tasks, four geometry-preserving distortions, four severity levels, matched classical enhancements and object-detection fine-tuning. Every main clean, distorted and enhanced condition is represented in the central activity table, while the GT detection table provides box mAP overall, per class and per SNR.
+
+The experiments produce three central findings:
+
+1. **Robustness is distortion- and task-dependent.** Motion blur can cause severe semantic damage despite a comparatively high SNR, while normalized template matching remains highly stable under broad low-light intensity changes.
+2. **Matched classical processing provides meaningful recovery.** Median filtering gives the clearest and most consistent recovery under salt-and-pepper noise; Gaussian smoothing and CLAHE provide condition-dependent gains; sharpening exposes the difference between edge amplification and genuine deblurring.
+3. **Metric selection changes the conclusion.** Detection counts, segmented-instance counts and tracked-point counts describe algorithm activity, while Ground-Truth mAP establishes correctness. The fine-tuning experiment reinforces this distinction by producing many more boxes but only modest GT gains.
+
+Together, the code, result tables, checkpoint, training history and visualizations form a complete robustness study whose strongest evidence is the Ground-Truth object-detection analysis supported by a broader four-task exploration.
