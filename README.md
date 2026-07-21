@@ -1,7 +1,7 @@
 # Robustness of Classical and Deep Vision Methods under Image Processing Degradations
 
 **Image Processing & Computer Vision — Course Project**  
-Team: Nitzan Sharabi · Roni Volshtein · Matan Sela
+Team: Nitzan Sharabi · Roni Volshtein · Matan Sella
 
 ## Project question
 
@@ -40,7 +40,7 @@ The experiment contains:
 
 ## 1. Experimental choices
 
-As a team of three, we used four tasks and four distortions. This exceeds the minimum requirement of three tasks and three distortions.
+As a team of three, we used four tasks and four distortions.
 
 | Component | Choice | Why we selected it |
 |---|---|---|
